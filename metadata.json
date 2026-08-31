@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Copy of TalentCC - Gestión de Talento Contact Center",
+  "description": "Plataforma SaaS integral de selección, capacitación, OJT y gestión de talento para contact centers con flujo unificado de candidatos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

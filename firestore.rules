@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function signedIn() { return request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && profile().data.status == 'ACTIVO' && (!('enabled' in profile().data) || profile().data.enabled == true); }
+    function role() { return profile().data.role; }
+    function isRole(roles) { return signedIn() && role() in roles; }
+    function isAdmin() { return isRole(['ADMIN']); }
+    function hasModule(moduleName) { return isAdmin() ||
+      (('module' in profile().data) && profile().data.module.hasAny([moduleName])) ||
+      (('allowedModules' in profile().data) && profile().data.allowedModules.hasAny([moduleName])); }
+    function companyMatches(companyId) { return profile().data.companyId == companyId || isAdmin(); }
+    function isSelectionLeader() { return isRole(['ADMIN', 'JEFE_SELECCION']) && hasModule('SELECCION'); }
+    function isScopedSelectionAnalyst(campaignId) { return isRole(['ANALISTA_SELECCION']) && hasModule('SELECCION') && (profile().data.scope.hasAny([campaignId]) || resource.data.assignedAnalystId == request.auth.uid); }
+    function canReadCandidate() { return isSelectionLeader() || (isRole(['ANALISTA_SELECCION']) && hasModule('SELECCION') && (profile().data.scope.hasAny([resource.data.campaignId]) || resource.data.analystId == request.auth.uid)) || (isRole(['RECLUTADOR']) && hasModule('SELECCION') && (resource.data.recruiterId == request.auth.uid || get(/databases/$(database)/documents/campaigns/$(resource.data.campaignId)).data.assignedUserIds.hasAny([request.auth.uid]))); }
+    function isTrainingLeader() { return isRole(['ADMIN', 'JEFE_FORMACION']) && hasModule('FORMACION'); }
+    function isScopedTrainingCoordinator() { return isRole(['COORDINADOR_FORMACION']) && hasModule('FORMACION') && (profile().data.scope.hasAny([resource.data.campaignId]) || resource.data.coordinatorId == request.auth.uid); }
+    function canReadTrainingCandidate(data) { return isTrainingLeader() ||
+      (isRole(['COORDINADOR_FORMACION']) && hasModule('FORMACION') &&
+        (profile().data.scope.hasAny([data.campaignId]) ||
+          (data.trainingId != null && get(/databases/$(database)/documents/trainings/$(data.trainingId)).data.coordinatorId == request.auth.uid))) ||
+      (isRole(['FORMADOR']) && hasModule('FORMACION') && data.trainingId != null && get(/databases/$(database)/documents/trainings/$(data.trainingId)).data.trainerId == request.auth.uid); }
+    function isTalentLeader() { return isRole(['ADMIN', 'JEFE_TALENTO']) && hasModule('TALENTO'); }
+    function isScopedTalentAnalyst(data) { return isRole(['ANALISTA_TALENTO']) && hasModule('TALENTO') && (profile().data.scope.hasAny([data.campaignId]) || profile().data.scope.hasAny([data.companyId])); }
+    function canReadTalentCandidate(data) { return isTalentLeader() || isScopedTalentAnalyst(data); }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (userId == request.auth.uid || isAdmin());
+      allow create, update, delete: if false;
+    }
+
+    match /companies/{companyId} {
+      allow read: if signedIn() && companyMatches(companyId);
+      allow write: if false;
+    }
+
+    match /campaigns/{campaignId} {
+      allow read: if signedIn() && companyMatches(resource.data.companyId) &&
+        (isSelectionLeader() || isScopedSelectionAnalyst(campaignId) || isTrainingLeader() ||
+          (isRole(['COORDINADOR_FORMACION']) && hasModule('FORMACION') && profile().data.scope.hasAny([campaignId])) ||
+          isTalentLeader() || isScopedTalentAnalyst(resource.data) ||
+          (isRole(['RECLUTADOR']) && hasModule('SELECCION') && resource.data.assignedUserIds.hasAny([request.auth.uid])));
+      allow write: if false;
+    }
+
+    match /candidates/{candidateId} {
+      allow read: if signedIn() && companyMatches(resource.data.companyId) &&
+        (canReadCandidate() || canReadTrainingCandidate(resource.data) || canReadTalentCandidate(resource.data) ||
+          resource.data.trainerId == request.auth.uid);
+      allow create, update, delete: if false;
+
+      match /documents/{documentId} {
+        allow read: if signedIn() && companyMatches(get(/databases/$(database)/documents/candidates/$(candidateId)).data.companyId) &&
+          (isTrainingLeader() || canReadTalentCandidate(get(/databases/$(database)/documents/candidates/$(candidateId)).data) ||
+            (isRole(['COORDINADOR_FORMACION']) && hasModule('FORMACION') &&
+              (profile().data.scope.hasAny([get(/databases/$(database)/documents/candidates/$(candidateId)).data.campaignId]) ||
+                (get(/databases/$(database)/documents/candidates/$(candidateId)).data.trainingId != null &&
+                  get(/databases/$(database)/documents/trainings/$(get(/databases/$(database)/documents/candidates/$(candidateId)).data.trainingId)).data.coordinatorId == request.auth.uid))));
+        allow write: if false;
+      }
+    }
+
+    match /trainings/{trainingId} {
+      allow read: if signedIn() && companyMatches(resource.data.companyId) &&
+        (isTrainingLeader() || isScopedTrainingCoordinator() || isSelectionLeader() ||
+          (isRole(['FORMADOR']) && hasModule('FORMACION') && resource.data.trainerId == request.auth.uid) ||
+          resource.data.coordinatorId == request.auth.uid);
+      allow write: if false;
+      match /participants/{participantId} {
+        allow read: if signedIn() && companyMatches(get(/databases/$(database)/documents/trainings/$(trainingId)).data.companyId) &&
+          (isTrainingLeader() || isSelectionLeader() || (isRole(['COORDINADOR_FORMACION']) && (profile().data.scope.hasAny([get(/databases/$(database)/documents/trainings/$(trainingId)).data.campaignId]) || get(/databases/$(database)/documents/trainings/$(trainingId)).data.coordinatorId == request.auth.uid)) ||
+            (isRole(['FORMADOR']) && hasModule('FORMACION') && get(/databases/$(database)/documents/trainings/$(trainingId)).data.trainerId == request.auth.uid) ||
+            get(/databases/$(database)/documents/trainings/$(trainingId)).data.coordinatorId == request.auth.uid);
+        allow write: if false;
+      }
+    }
+
+    match /hiringProcesses/{processId} {
+      allow read: if signedIn() && companyMatches(resource.data.companyId) && canReadTalentCandidate(resource.data);
+      allow write: if false;
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if signedIn() && (isAdmin() || isSelectionLeader() || isTrainingLeader() || isTalentLeader());
+      allow write: if false;
+    }
+  }
+}

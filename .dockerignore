@@ -1,0 +1,16 @@
+.git
+.github
+.env*
+!.env.example
+node_modules
+node_modules.*
+dist
+coverage
+.wrangler
+worker
+functions
+tests
+docs
+*.log
+firebase-debug.log
+firestore-debug.log

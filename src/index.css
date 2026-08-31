@@ -1,0 +1,430 @@
+@import "tailwindcss";
+
+/* Talent-On visual system. Scoped to the authenticated application so the login stays untouched. */
+.talent-app {
+  --to-primary: #143a56;
+  --to-dark: #0c1e35;
+  --to-secondary: #154e7d;
+  --to-turquoise: #4ca899;
+  --to-green: #87c6a2;
+  --to-coral: #f68565;
+  --to-app-bg: #f5f7fa;
+  --to-surface: #ffffff;
+  --to-border: #e2e8f0;
+  --to-text: #0c1e35;
+  --to-muted: #6f7e8f;
+
+  /* Compact density tokens: real layout dimensions, never visual scaling. */
+  --density-sidebar: 224px;
+  --density-header: 56px;
+  --density-content-x: 24px;
+  --density-content-y: 20px;
+  --density-section-gap: 18px;
+  --density-card-gap: 16px;
+  --density-card-padding: 16px;
+  --density-control-height: 42px;
+  --density-icon: 18px;
+  --density-radius: 12px;
+
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f5f7fa;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #c3d0d5;
+  --color-slate-400: #8fa0ad;
+  --color-slate-500: #6f7e8f;
+  --color-slate-600: #566575;
+  --color-slate-700: #344a5d;
+  --color-slate-800: #143a56;
+  --color-slate-900: #0c1e35;
+  --color-slate-950: #071321;
+
+  --color-sky-50: #eef5fa;
+  --color-sky-100: #dceaf4;
+  --color-sky-200: #bdd5e7;
+  --color-sky-300: #8fb9d7;
+  --color-sky-400: #5a91ba;
+  --color-sky-500: #2e6d9c;
+  --color-sky-600: #154e7d;
+  --color-sky-700: #143a56;
+  --color-sky-800: #102e47;
+  --color-sky-900: #0c1e35;
+  --color-sky-950: #071321;
+
+  --color-blue-50: #eef5fa;
+  --color-blue-100: #dceaf4;
+  --color-blue-200: #bdd5e7;
+  --color-blue-300: #8fb9d7;
+  --color-blue-400: #5a91ba;
+  --color-blue-500: #2e6d9c;
+  --color-blue-600: #154e7d;
+  --color-blue-700: #143a56;
+  --color-blue-800: #102e47;
+  --color-blue-900: #0c1e35;
+  --color-indigo-50: #eef5fa;
+  --color-indigo-100: #dceaf4;
+  --color-indigo-200: #bdd5e7;
+  --color-indigo-300: #8fb9d7;
+  --color-indigo-400: #5a91ba;
+  --color-indigo-500: #2e6d9c;
+  --color-indigo-600: #154e7d;
+  --color-indigo-700: #143a56;
+  --color-indigo-800: #102e47;
+  --color-indigo-900: #0c1e35;
+  --color-purple-50: #eef5fa;
+  --color-purple-100: #dceaf4;
+  --color-purple-200: #bdd5e7;
+  --color-purple-300: #8fb9d7;
+  --color-purple-400: #5a91ba;
+  --color-purple-500: #2e6d9c;
+  --color-purple-600: #154e7d;
+  --color-purple-700: #143a56;
+  --color-purple-800: #102e47;
+  --color-purple-900: #0c1e35;
+
+  --color-cyan-50: #eff8f6;
+  --color-cyan-100: #ddf1ed;
+  --color-cyan-200: #bfe2db;
+  --color-cyan-300: #93cfc4;
+  --color-cyan-400: #62b8aa;
+  --color-cyan-500: #4ca899;
+  --color-cyan-600: #3c887c;
+  --color-cyan-700: #316e65;
+  --color-cyan-800: #295951;
+  --color-cyan-900: #234a45;
+  --color-teal-50: #eff8f6;
+  --color-teal-100: #ddf1ed;
+  --color-teal-200: #bfe2db;
+  --color-teal-300: #93cfc4;
+  --color-teal-400: #62b8aa;
+  --color-teal-500: #4ca899;
+  --color-teal-600: #3c887c;
+  --color-teal-700: #316e65;
+  --color-teal-800: #295951;
+  --color-teal-900: #234a45;
+
+  --color-emerald-50: #f1f8f3;
+  --color-emerald-100: #e0f0e5;
+  --color-emerald-200: #c5e2cf;
+  --color-emerald-300: #a1d3b3;
+  --color-emerald-400: #87c6a2;
+  --color-emerald-500: #61ae82;
+  --color-emerald-600: #469267;
+  --color-emerald-700: #387554;
+  --color-emerald-800: #305e46;
+  --color-emerald-900: #294e3c;
+  --color-green-50: #f1f8f3;
+  --color-green-100: #e0f0e5;
+  --color-green-200: #c5e2cf;
+  --color-green-300: #a1d3b3;
+  --color-green-400: #87c6a2;
+  --color-green-500: #61ae82;
+  --color-green-600: #469267;
+  --color-green-700: #387554;
+  --color-green-800: #305e46;
+  --color-green-900: #294e3c;
+
+  --color-amber-50: #fff4f1;
+  --color-amber-100: #ffe5de;
+  --color-amber-200: #ffcfc3;
+  --color-amber-300: #f9af9d;
+  --color-amber-400: #f68565;
+  --color-amber-500: #eb6848;
+  --color-amber-600: #d84f32;
+  --color-amber-700: #b63d26;
+  --color-amber-800: #933524;
+  --color-amber-900: #792f23;
+  --color-orange-50: #fff4f1;
+  --color-orange-100: #ffe5de;
+  --color-orange-200: #ffcfc3;
+  --color-orange-300: #f9af9d;
+  --color-orange-400: #f68565;
+  --color-orange-500: #eb6848;
+  --color-orange-600: #d84f32;
+  --color-orange-700: #b63d26;
+  --color-orange-800: #933524;
+  --color-orange-900: #792f23;
+  --color-red-50: #fff4f1;
+  --color-red-100: #ffe5de;
+  --color-red-200: #ffcfc3;
+  --color-red-300: #f9af9d;
+  --color-red-400: #f68565;
+  --color-red-500: #eb6848;
+  --color-red-600: #d84f32;
+  --color-red-700: #b63d26;
+  --color-red-800: #933524;
+  --color-red-900: #792f23;
+  --color-rose-50: #fff4f1;
+  --color-rose-100: #ffe5de;
+  --color-rose-200: #ffcfc3;
+  --color-rose-300: #f9af9d;
+  --color-rose-400: #f68565;
+  --color-rose-500: #eb6848;
+  --color-rose-600: #d84f32;
+  --color-rose-700: #b63d26;
+  --color-rose-800: #933524;
+  --color-rose-900: #792f23;
+
+  background: var(--to-app-bg);
+  color: var(--to-text);
+  font-family: 'Poppins', sans-serif;
+  font-weight: 400;
+}
+
+.talent-app * {
+  font-family: inherit;
+}
+
+.talent-login,
+.talent-login * {
+  font-family: 'Poppins', sans-serif;
+}
+
+.talent-sidebar {
+  width: var(--density-sidebar);
+}
+
+.talent-sidebar-brand {
+  height: 88px;
+}
+
+.talent-header {
+  height: var(--density-header);
+  padding-inline: 20px;
+}
+
+.talent-content {
+  width: 100%;
+  padding: var(--density-content-y) var(--density-content-x);
+  background: #f5f7fa;
+}
+
+/* Shared internal surface language. Login and sidebar are intentionally out of scope. */
+.talent-content :is(.bg-slate-50, .bg-slate-50\/90, .bg-slate-50\/80) {
+  background-color: #f8fafc;
+}
+
+.talent-content :is(.border-slate-100, .border-slate-200) {
+  border-color: #e2e8f0;
+}
+
+.talent-content :is(table, .overflow-x-auto) {
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.pipeline-overview > div:first-child,
+.pipeline-campaign-card {
+  box-shadow: 0 4px 16px rgb(12 30 53 / 5%);
+}
+
+.pipeline-campaign-card {
+  min-height: 0;
+}
+
+.pipeline-campaign-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 340px));
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 640px) {
+  .pipeline-campaign-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Convocatorias: compact executive filter strip. */
+.campaign-compact-filters {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 160px 200px max-content max-content;
+  align-items: center;
+  gap: 10px;
+}
+
+.campaign-compact-filters > * {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .campaign-compact-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .campaign-compact-filters > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  .campaign-compact-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .campaign-compact-filters > :first-child {
+    grid-column: auto;
+  }
+}
+
+/* Shared typography scale. It keeps Poppins and trims only visual density. */
+.talent-app .text-3xl { font-size: 1.625rem; line-height: 1.18; }
+.talent-app .text-2xl { font-size: 1.3125rem; line-height: 1.25; }
+.talent-app .text-xl { font-size: 1.125rem; line-height: 1.35; }
+.talent-app .text-lg { font-size: 1rem; line-height: 1.4; }
+.talent-app .text-base { font-size: 0.875rem; line-height: 1.45; }
+.talent-app .text-sm { font-size: 0.78rem; line-height: 1.45; }
+.talent-app .text-xs { font-size: 0.7rem; line-height: 1.45; }
+
+/* Shared spacing scale for views, cards, tables and dialogs. */
+.talent-app .gap-8 { gap: 1.25rem; }
+.talent-app .gap-6 { gap: var(--density-card-gap); }
+.talent-app .gap-5 { gap: 0.875rem; }
+.talent-app .gap-4 { gap: 0.75rem; }
+.talent-app .p-8 { padding: 1.5rem; }
+.talent-app .p-6 { padding: 1.25rem; }
+.talent-app .p-5 { padding: var(--density-card-padding); }
+.talent-app .p-4 { padding: 0.875rem; }
+.talent-app .px-6 { padding-inline: 1.25rem; }
+.talent-app .py-6 { padding-block: 1.25rem; }
+.talent-app .space-y-8 > :not(:last-child) { margin-block: 0 1.25rem; }
+.talent-app .space-y-6 > :not(:last-child) { margin-block: 0 var(--density-section-gap); }
+.talent-app .space-y-5 > :not(:last-child) { margin-block: 0 0.875rem; }
+.talent-app .space-y-4 > :not(:last-child) { margin-block: 0 0.75rem; }
+
+.talent-app input:not([type='checkbox']):not([type='radio']),
+.talent-app select {
+  min-height: 40px;
+}
+
+.talent-app .h-14 { height: 44px; }
+.talent-app .h-12 { height: 42px; }
+.talent-app .h-11 { height: 40px; }
+.talent-app .w-6.h-6,
+.talent-app .h-6.w-6 { width: 20px; height: 20px; }
+.talent-app .w-5.h-5,
+.talent-app .h-5.w-5 { width: var(--density-icon); height: var(--density-icon); }
+
+.talent-app :is(th, td).py-4 { padding-block: 0.625rem; }
+.talent-app :is(th, td).py-3 { padding-block: 0.5rem; }
+.talent-app :is(th, td).px-4 { padding-inline: 0.75rem; }
+.talent-app :is(th, td).px-3 { padding-inline: 0.625rem; }
+
+/* Dialog shells retain their structure while using less viewport. */
+.talent-app .max-w-5xl { max-width: 64rem; }
+.talent-app .max-w-4xl { max-width: 56rem; }
+.talent-app .max-w-2xl { max-width: 36rem; }
+.talent-app .max-w-lg { max-width: 28rem; }
+
+.talent-app input:not([type='checkbox']):not([type='radio']),
+.talent-app select,
+.talent-app textarea {
+  border-color: var(--to-border);
+}
+
+.talent-app input:not([type='checkbox']):not([type='radio']):focus,
+.talent-app select:focus,
+.talent-app textarea:focus {
+  border-color: var(--to-turquoise);
+  box-shadow: 0 0 0 3px rgb(76 168 153 / 12%);
+}
+
+.talent-app table {
+  color: var(--to-text);
+}
+
+.talent-app main :is(section, article, div).bg-white.rounded-xl,
+.talent-app main :is(section, article, div).bg-white.rounded-2xl {
+  box-shadow: 0 3px 14px rgb(12 30 53 / 4%);
+}
+
+.talent-app main .shadow-sm,
+.talent-app main .shadow-md,
+.talent-app main .shadow-lg,
+.talent-app main .shadow-xl {
+  box-shadow: 0 3px 14px rgb(12 30 53 / 5%);
+}
+
+.talent-sidebar-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 24%) transparent;
+}
+
+.talent-sidebar-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.talent-sidebar-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.talent-sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 24%);
+  border-radius: 999px;
+}
+
+.talent-sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgb(255 255 255 / 38%);
+}
+
+/* Sistema visual común de ventanas y modales Talent-On. */
+.talent-app .fixed.inset-0[class*='backdrop-blur'] > div {
+  background-color: #fff;
+  border-color: #e2e8f0;
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgb(12 30 53 / 18%);
+  font-family: 'Poppins', sans-serif;
+}
+
+.talent-app .fixed.inset-0[class*='backdrop-blur'] > div > .bg-slate-900.text-white {
+  background-color: #fff !important;
+  color: #143a56 !important;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.talent-app .fixed.inset-0[class*='backdrop-blur'] > div > .bg-slate-900.text-white :is(h1, h2, h3, h4),
+.talent-app .fixed.inset-0[class*='backdrop-blur'] > div > .bg-slate-900.text-white button {
+  color: #143a56 !important;
+}
+
+.talent-app .fixed.inset-0[class*='backdrop-blur'] :is(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+  border-color: #e2e8f0;
+  border-radius: 8px;
+  background-color: #fff;
+}
+
+.talent-app .fixed.inset-0[class*='backdrop-blur'] :is(.bg-slate-50, .bg-slate-100) {
+  border-color: #e2e8f0;
+}
+
+.talent-app .fixed.inset-0[class*='backdrop-blur'] form > :last-child:has(> button) {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background-color: #fff;
+}
+
+.talent-app .fixed.inset-0[class*='backdrop-blur'] button[type='submit'].bg-sky-600,
+.talent-app .fixed.inset-0[class*='backdrop-blur'] button[type='submit'].bg-slate-900 {
+  background-color: #143a56 !important;
+}
+
+.talent-app .fixed.inset-0[class*='backdrop-blur'] button[type='submit'].bg-sky-600:hover,
+.talent-app .fixed.inset-0[class*='backdrop-blur'] button[type='submit'].bg-slate-900:hover {
+  background-color: #0c1e35 !important;
+}
+
+@media (max-width: 1279px) {
+  .talent-app {
+    --density-sidebar: 220px;
+    --density-content-x: 16px;
+    --density-content-y: 16px;
+  }
+
+  .talent-header { padding-inline: 16px; }
+}
+
+@media (max-width: 1023px) {
+  .talent-app {
+    --density-sidebar: 216px;
+    --density-content-x: 14px;
+  }
+}

@@ -1,0 +1,200 @@
+import React, { lazy, Suspense, useEffect, useState } from 'react';
+import { TalentProvider, useTalent } from './context/TalentContext';
+import { Sidebar } from './components/layout/Sidebar';
+import { Header } from './components/layout/Header';
+import { LoginView } from './components/auth/LoginView';
+import { ActiveNavModule, UserProfile } from './types';
+
+const Candidate360Modal = lazy(() => import('./components/candidates/Candidate360Modal').then(module => ({ default: module.Candidate360Modal })));
+const DashboardView = lazy(() => import('./views/DashboardView').then(module => ({ default: module.DashboardView })));
+const ConvocatoriasView = lazy(() => import('./views/ConvocatoriasView').then(module => ({ default: module.ConvocatoriasView })));
+const MisConvocatoriasView = lazy(() => import('./views/MisConvocatoriasView').then(module => ({ default: module.MisConvocatoriasView })));
+const CandidatosView = lazy(() => import('./views/CandidatosView').then(module => ({ default: module.CandidatosView })));
+const FormacionDashboardView = lazy(() => import('./views/FormacionDashboardView').then(module => ({ default: module.FormacionDashboardView })));
+const CapacitacionesView = lazy(() => import('./views/CapacitacionesView').then(module => ({ default: module.CapacitacionesView })));
+const MisCapacitacionesView = lazy(() => import('./views/MisCapacitacionesView').then(module => ({ default: module.MisCapacitacionesView })));
+const ParticipantesView = lazy(() => import('./views/ParticipantesView').then(module => ({ default: module.ParticipantesView })));
+const OjtView = lazy(() => import('./views/OjtView').then(module => ({ default: module.OjtView })));
+const ContratacionesView = lazy(() => import('./views/ContratacionesView').then(module => ({ default: module.ContratacionesView })));
+const AnaliticaView = lazy(() => import('./views/AnaliticaView').then(module => ({ default: module.AnaliticaView })));
+const ConfiguracionView = lazy(() => import('./views/ConfiguracionView').then(module => ({ default: module.ConfiguracionView })));
+const UsuariosView = lazy(() => import('./views/UsuariosView').then(module => ({ default: module.UsuariosView })));
+const CandidateCreateModal = lazy(() => import('./components/modals/CandidateCreateModal').then(module => ({ default: module.CandidateCreateModal })));
+const ConvocatoriaModal = lazy(() => import('./components/modals/ConvocatoriaModal').then(module => ({ default: module.ConvocatoriaModal })));
+const CreateTrainingCohortModal = lazy(() => import('./components/modals/CreateTrainingCohortModal').then(module => ({ default: module.CreateTrainingCohortModal })));
+
+const rolesForView: Partial<Record<ActiveNavModule, UserProfile['role'][]>> = {
+  SELECCION_DASHBOARD: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION', 'RECLUTADOR'],
+  CONVOCATORIAS: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION'],
+  SELECCION_CONVOCATORIAS: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION'],
+  MIS_CONVOCATORIAS: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION', 'RECLUTADOR'],
+  SELECCION_MIS_CONVOCATORIAS: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION', 'RECLUTADOR'],
+  CANDIDATOS: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION', 'RECLUTADOR'],
+  SELECCION_CANDIDATOS: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION', 'RECLUTADOR'],
+  FORMACION_DASHBOARD: ['ADMIN', 'JEFE_FORMACION', 'COORDINADOR_FORMACION', 'FORMADOR'],
+  FORMACION_CAPACITACIONES: ['ADMIN', 'JEFE_FORMACION', 'COORDINADOR_FORMACION'],
+  FORMACION_MIS_CAPACITACIONES: ['ADMIN', 'COORDINADOR_FORMACION', 'FORMADOR'],
+  FORMACION_PARTICIPANTES: ['ADMIN', 'JEFE_FORMACION', 'COORDINADOR_FORMACION', 'FORMADOR'],
+  FORMACION_OJT: ['ADMIN', 'JEFE_FORMACION', 'COORDINADOR_FORMACION', 'FORMADOR'],
+  TALENTO_CONTRATACIONES: ['ADMIN', 'JEFE_TALENTO', 'ANALISTA_TALENTO'],
+  ANALITICA: ['ADMIN', 'JEFE_SELECCION', 'JEFE_FORMACION', 'JEFE_TALENTO'],
+  CONFIGURACION: ['ADMIN'],
+  ADMIN_USUARIOS: ['ADMIN'],
+};
+
+const defaultViewFor = (user: UserProfile): ActiveNavModule => {
+  if (user.role === 'ADMIN') return 'ADMIN_USUARIOS';
+  if (user.role === 'RECLUTADOR') return 'MIS_CONVOCATORIAS';
+  if (['JEFE_SELECCION', 'ANALISTA_SELECCION'].includes(user.role)) return 'SELECCION_DASHBOARD';
+  if (user.role === 'FORMADOR') return 'FORMACION_MIS_CAPACITACIONES';
+  if (['JEFE_FORMACION', 'COORDINADOR_FORMACION'].includes(user.role)) return 'FORMACION_DASHBOARD';
+  return 'TALENTO_CONTRATACIONES';
+};
+
+const MainLayout: React.FC = () => {
+  const { 
+    activeModule, 
+    selectedCandidateId, 
+    closeCandidate360,
+    currentUser,
+    setActiveModule,
+  } = useTalent();
+
+  useEffect(() => {
+    const normalized = activeModule === 'INICIO' ? 'SELECCION_DASHBOARD' : activeModule;
+    const allowed = rolesForView[normalized]?.includes(currentUser.role) ?? false;
+    if (!allowed) setActiveModule(defaultViewFor(currentUser));
+  }, [activeModule, currentUser, setActiveModule]);
+
+  // Modals state
+  const [isCandidateModalOpen, setIsCandidateModalOpen] = useState(false);
+  const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
+  const [isCohortModalOpen, setIsCohortModalOpen] = useState(false);
+
+  return (
+    <div className="talent-app flex h-screen bg-slate-100 overflow-hidden font-sans antialiased text-slate-900">
+      {/* Sidebar navigation */}
+      <Sidebar />
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        
+        {/* Top Header */}
+        <Header 
+          onOpenNewCandidateModal={() => setIsCandidateModalOpen(true)}
+          onOpenNewCampaignModal={() => setIsCampaignModalOpen(true)}
+          onOpenNewCohortModal={() => setIsCohortModalOpen(true)}
+        />
+
+        {/* Scrollable View Container */}
+        <main className="talent-content flex-1 overflow-y-auto custom-scrollbar">
+          <Suspense fallback={<div className="py-12 text-center text-slate-500">Cargando módulo…</div>}>
+          <div className="w-full space-y-6">
+            
+            {/* SELECCIÓN MODULE */}
+            {(activeModule === 'INICIO' || activeModule === 'SELECCION_DASHBOARD' || (activeModule as string) === 'DASHBOARD') && (
+              <DashboardView />
+            )}
+            
+            {(activeModule === 'CONVOCATORIAS' || activeModule === 'SELECCION_CONVOCATORIAS') && (
+              <ConvocatoriasView />
+            )}
+            
+            {activeModule === 'MIS_CONVOCATORIAS' && (
+              <MisConvocatoriasView />
+            )}
+            
+            {(activeModule === 'CANDIDATOS' || activeModule === 'SELECCION_CANDIDATOS') && (
+              <CandidatosView />
+            )}
+
+            {/* FORMACIÓN & OJT MODULE */}
+            {activeModule === 'FORMACION_DASHBOARD' && (
+              <FormacionDashboardView />
+            )}
+
+            {activeModule === 'FORMACION_CAPACITACIONES' && (
+              <CapacitacionesView onOpenNewCohortModal={() => setIsCohortModalOpen(true)} />
+            )}
+
+            {activeModule === 'FORMACION_MIS_CAPACITACIONES' && (
+              <MisCapacitacionesView />
+            )}
+
+            {activeModule === 'FORMACION_PARTICIPANTES' && (
+              <ParticipantesView />
+            )}
+
+            {activeModule === 'FORMACION_OJT' && (
+              <OjtView />
+            )}
+
+            {/* TALENTO / CONTRATACIONES */}
+            {activeModule === 'TALENTO_CONTRATACIONES' && (
+              <ContratacionesView />
+            )}
+
+            {/* ANALÍTICA & CONFIGURACIÓN & USUARIOS RBAC */}
+            {activeModule === 'ANALITICA' && (
+              <AnaliticaView />
+            )}
+            
+            {activeModule === 'ADMIN_USUARIOS' && (
+              <UsuariosView />
+            )}
+
+            {activeModule === 'CONFIGURACION' && (
+              <ConfiguracionView />
+            )}
+          </div>
+          </Suspense>
+        </main>
+      </div>
+
+      {/* Unified 360° Candidate Record Modal */}
+      <Suspense fallback={null}>
+        {selectedCandidateId && (
+          <Candidate360Modal
+            candidateId={selectedCandidateId}
+            onClose={closeCandidate360}
+          />
+        )}
+
+      {/* Global Modals */}
+      {isCandidateModalOpen && (
+        <CandidateCreateModal
+          isOpen
+          onClose={() => setIsCandidateModalOpen(false)}
+        />
+      )}
+      
+      {isCampaignModalOpen && (
+        <ConvocatoriaModal
+          isOpen
+          onClose={() => setIsCampaignModalOpen(false)}
+        />
+      )}
+      
+      {isCohortModalOpen && (
+        <CreateTrainingCohortModal
+          isOpen
+          onClose={() => setIsCohortModalOpen(false)}
+        />
+      )}
+      </Suspense>
+    </div>
+  );
+};
+
+const AppContent: React.FC = () => {
+  const { isAuthenticated } = useTalent();
+  return isAuthenticated ? <MainLayout /> : <LoginView />;
+};
+
+export default function App() {
+  return (
+    <TalentProvider>
+      <AppContent />
+    </TalentProvider>
+  );
+}
