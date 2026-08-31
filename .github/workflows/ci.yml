@@ -31,6 +31,22 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Construir imagen de producción
+        run: docker build -t talent-on:ci .
+
+      - name: Comprobar servidor y healthcheck
+        shell: bash
+        run: |
+          docker run --detach --name talent-on-ci --publish 3000:3000 --env PORT=3000 talent-on:ci
+          for attempt in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:3000/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs talent-on-ci
+          exit 1
+
   worker:
     runs-on: ubuntu-latest
     defaults:
