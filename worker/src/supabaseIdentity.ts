@@ -21,6 +21,7 @@ export async function relationalIdentity(env:RuntimeEnv,action:'create'|'update'
  }
  const uid=String(body.localId||'');
  if(action==='delete'){
+  if(env.RELATIONAL_RUNTIME?.committed)return {};
   // Solo compensación de cuentas recién creadas, nunca usuarios históricos.
   if(!env.RELATIONAL_RUNTIME?.newAuthIds.includes(uid))throw new SupabaseError(403,'FORBIDDEN');
   await call(root+'/'+encodeURIComponent(uid),'PUT',{ban_duration:'876000h'});return {};
@@ -28,7 +29,7 @@ export async function relationalIdentity(env:RuntimeEnv,action:'create'|'update'
  const profile=await env.RELATIONAL_RUNTIME?.get('users/'+uid);
  if(!profile&&!env.RELATIONAL_RUNTIME?.newAuthIds.includes(uid))throw new SupabaseError(403,'FORBIDDEN');
  const patch:D={...(body.email?{email:body.email}:{}),...(body.displayName?{user_metadata:{displayName:body.displayName}}:{}),...(body.disabled!==undefined?{ban_duration:body.disabled?'876000h':'none'}:{})};
- if(body.password){patch.password=body.password;patch.app_metadata={runtime_password_pending:true};env.RELATIONAL_RUNTIME?.markPasswordReset(uid);}
+ if(body.password){patch.password=body.password;patch.app_metadata={runtime_password_pending:true};patch.ban_duration=profile?.status==='ACTIVO'&&profile?.enabled!==false?'none':'876000h';env.RELATIONAL_RUNTIME?.markPasswordReset(uid);}
  // Primero persiste estado/permisos y bloqueo en SQL. Si Auth falla no concede acceso.
  env.RELATIONAL_RUNTIME!.deferAuth(async()=>{await call(root+'/'+encodeURIComponent(uid),'PUT',patch);});
  return {localId:uid};

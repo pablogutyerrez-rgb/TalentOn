@@ -29,6 +29,7 @@ export class RelationalRuntime {
  private documents=new Map<string,D>();
  private resetIds=new Set<string>();
  readonly newAuthIds:string[]=[];
+ committed=false;
  private authAfterCommit:Array<()=>Promise<void>>=[];
  deferAuth(work:()=>Promise<void>){this.authAfterCommit.push(work);}
  constructor(private env:SupabaseEnv,readonly actorId:string|null,private publicToken?:string){}
@@ -166,6 +167,7 @@ export class RelationalRuntime {
   items.sort((a,b)=>priority(a[0])-priority(b[0]));
   for(const [path,data]of items)await this.serialize(path,data);
   await this.rpc('talent_runtime_commit',{p_actor:this.actorId,p_public_hash:this.hash,p_company:this.companyId,p_revision:this.snapshot.revision,p_rows:Array.from(this.changed.values()),p_resets:Array.from(this.resetIds)});
+  this.committed=true;
   for(const work of this.authAfterCommit)await work();
  }
  private async serialize(path:string,d:D):Promise<void>{

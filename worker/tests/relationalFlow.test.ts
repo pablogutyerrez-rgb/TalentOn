@@ -142,6 +142,15 @@ describe('Transición relacional PostgreSQL 17',()=>{
   const users=(await call('/api/bootstrap')).data.users;const user=users.find((u:any)=>u.email==='ci.newuser');expect(user).toBeTruthy();
   expect((await call('/api/bootstrap','GET',undefined,user.id)).status).toBe(403);
  });
+ it('reset reconcilia Auth con estado activo y conserva bloqueo de inactivos',async()=>{
+  const user=Array.from(authUsers.values()).find((u:any)=>u.email==='ci.newuser@auth.talentcc.invalid')!;
+  user.ban_duration='876000h';
+  expect((await call('/api/users/'+user.id+'/reset-password','POST',{newPassword:'CI-password-reset-2026'})).status).toBe(200);
+  expect(authUsers.get(user.id).ban_duration).toBe('none');
+  await db.query("update talent.profiles set status='INACTIVO',enabled=false where id=$1",[user.id]);
+  expect((await call('/api/users/'+user.id+'/reset-password','POST',{newPassword:'CI-password-reset-2027'})).status).toBe(200);
+  expect(authUsers.get(user.id).ban_duration).toBe('876000h');
+ });
  it('captación pública crea persona y evento atómicos, conserva origen y reintentos',async()=>{
   env.TURNSTILE_SECRET_KEY='test-only-secret';
   const link=await call('/api/capture/links','POST',{source:'Facebook'});expect(link.status).toBe(201);
