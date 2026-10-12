@@ -36,6 +36,8 @@ export class RelationalRuntime {
  private async rpc<T>(name:string,data:D):Promise<T>{
   const r=await fetch(this.env.SUPABASE_URL!.replace(/\/$/,'')+'/rest/v1/rpc/'+name,{method:'POST',headers:supabaseServerHeaders(this.env),body:JSON.stringify(data)});
   if(!r.ok){const e=await r.json<{code?:string;message?:string}>().catch(()=>({} as any));throw new SupabaseError(e.code==='PT409'||e.code==='23505'?409:r.status,e.code==='PT409'?'CAPTURE_RETRY':e.code==='23505'?'DUPLICATE_RECORD':e.message==='PASSWORD_CHANGE_REQUIRED'?'PASSWORD_CHANGE_REQUIRED':'RELATIONAL_WRITE_FAILED');}
+  // PostgREST returns an empty body for the void commit RPC.
+  if(name==='talent_runtime_commit')return undefined as T;
   return r.json<T>();
  }
  async load(){this.hash=this.publicToken?await digest(this.publicToken):null;this.snapshot=await this.rpc('talent_runtime_snapshot',{p_actor:this.actorId,p_public_hash:this.hash});return this;}
