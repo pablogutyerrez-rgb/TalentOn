@@ -1,0 +1,43 @@
+name: Supabase esquema preparado
+on:
+  pull_request:
+    paths: ['supabase/**', '.github/workflows/supabase-schema.yml']
+  push:
+    branches: [main]
+    paths: ['supabase/**', '.github/workflows/supabase-schema.yml']
+permissions:
+  contents: read
+jobs:
+  sql:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: talent_schema_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: ci-only-password
+      PGDATABASE: talent_schema_test
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/bootstrap.sql
+      - name: Aplicar todas las migraciones en orden
+        run: |
+          for migration in supabase/migrations/*.sql; do
+            psql -v ON_ERROR_STOP=1 -f "$migration"
+          done
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/invariants.sql
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/relational.sql
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/first-password.sql
+      - run: python3 supabase/tests/concurrency.py

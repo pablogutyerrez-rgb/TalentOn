@@ -23,6 +23,8 @@ export interface UserProfile {
   role: UserRole;
   email: string;
   avatarUrl: string;
+  nickname?: string;
+  tagline?: string;
   jobTitle?: string;
   phone?: string;
   status?: 'ACTIVO' | 'INACTIVO';
@@ -207,6 +209,14 @@ export interface CandidateEligibility {
   salaryAccountComplete: boolean;
   documentProgress: number;
   pending: string[];
+}
+
+export interface SystemSettings {
+  companyName: string;
+  minPassGrade: number;
+  minAttendancePct: number;
+  slaSelectionDays: number;
+  ojtDurationDays: number;
 }
 
 export interface DocumentItem {
@@ -660,6 +670,7 @@ export interface TrainingCohort {
 }
 
 export type ActiveNavModule = 
+  | 'SELECCION_CAPTACION'
   | 'INICIO'
   | 'SELECCION_DASHBOARD'
   | 'CONVOCATORIAS'

@@ -356,7 +356,7 @@ export const UsuariosView: React.FC = () => {
                                 </span>
                               )}
                             </div>
-                            <div className="text-2xs text-slate-500 font-mono truncate">{user.email}</div>
+                            <div className="text-2xs text-slate-500 font-mono truncate">{user.nickname ? `${user.nickname} · ${user.email}` : user.email}</div>
                             <div className="text-2xs text-slate-400 truncate">
                               {user.jobTitle || 'Sin cargo definido'} {user.phone ? `• ${user.phone}` : ''}
                             </div>

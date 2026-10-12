@@ -47,6 +47,7 @@ import {
 import { useTalent } from '../context/TalentContext';
 import { CampaignCall, CandidateRecord, SelectionStage, LeadSourceType, ContactType, ContactOutcome } from '../types';
 import { Candidate360Modal } from '../components/candidates/Candidate360Modal';
+import { SelectionProcessConfiguration } from '../components/candidates/SelectionProcessConfiguration';
 import { CandidateCreateModal } from '../components/modals/CandidateCreateModal';
 import { DiscardCandidateModal } from '../components/modals/DiscardCandidateModal';
 import { SourcesModal } from '../components/modals/SourcesModal';
@@ -54,7 +55,7 @@ import { CreateTrainingCohortModal } from '../components/modals/CreateTrainingCo
 import { GraduationCap } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, LineChart, Line, Legend } from 'recharts';
 
-type SubTabType = 'candidatos' | 'kanban' | 'resumen' | 'fuentes' | 'indicadores';
+type SubTabType = 'candidatos' | 'kanban' | 'resumen' | 'fuentes' | 'indicadores' | 'proceso';
 
 export const MisConvocatoriasView: React.FC = () => {
   const { 
@@ -86,6 +87,10 @@ export const MisConvocatoriasView: React.FC = () => {
   const [stageFilter, setStageFilter] = useState<string>('ALL');
   const [recruiterFilter, setRecruiterFilter] = useState<string>('ALL');
   const [sourceFilter, setSourceFilter] = useState<string>('ALL');
+  const [overviewSearch, setOverviewSearch] = useState('');
+  const [overviewStatus, setOverviewStatus] = useState('ALL');
+  const [overviewCampaign, setOverviewCampaign] = useState('ALL');
+  const [overviewLocation, setOverviewLocation] = useState('ALL');
 
   // Modals
   const [isCandidateCreateOpen, setIsCandidateCreateOpen] = useState(false);
@@ -99,6 +104,39 @@ export const MisConvocatoriasView: React.FC = () => {
   const [contactOutcome, setContactOutcome] = useState<ContactOutcome>('CONTESTO');
   const [contactSummary, setContactSummary] = useState('');
   const [contactNextStep, setContactNextStep] = useState('');
+
+  const campaignCandidatesFor = (campaignId: string) => candidates.filter(candidate =>
+    candidate.campaignId === campaignId && (currentUser.role !== 'RECLUTADOR' || candidate.recruiterId === currentUser.id)
+  );
+  const campaignMetrics = (campaign: CampaignCall) => {
+    const rows = campaignCandidatesFor(campaign.id);
+    const responsible = campaign.responsibles?.find(item => item.userId === currentUser.id);
+    const target = responsible ? Number(responsible.target) : campaign.vacancies;
+    const ingresos = rows.filter(candidate => candidate.currentStage === 'CONTRATADO' || candidate.selection?.hiringConfirmed).length;
+    const aptos = rows.filter(candidate => candidate.selection?.stage === 'APTO_CAPACITACION' || ['CAPACITACION', 'OJT', 'APTO_ALTA', 'GESTION_TALENTO', 'CONTRATADO'].includes(candidate.currentStage)).length;
+    return { target, ingresos, aptos, advance: target > 0 ? Math.round((ingresos / target) * 100) : 0 };
+  };
+  const statusLabel = (status: CampaignCall['status']) => ({
+    EN_PROCESO: 'En proceso', PUBLICADO: 'Publicado', CERRADO: 'Cerrado', ANULADO: 'Anulado', ACTIVA: 'Activa', EN_PAUSA: 'En pausa',
+  }[status] || status);
+  const campaignCompanies = [...new Set(availableCampaigns.map(campaign => campaign.company || campaign.client).filter(Boolean))] as string[];
+  const campaignLocations = [...new Set(availableCampaigns.map(campaign => campaign.location).filter(Boolean))];
+  const filteredOverviewCampaigns = availableCampaigns.filter(campaign => {
+    const query = overviewSearch.trim().toLowerCase();
+    const searchable = [campaign.title, campaign.company, campaign.client, campaign.code, campaign.location].filter(Boolean).join(' ').toLowerCase();
+    return (!query || searchable.includes(query))
+      && (overviewStatus === 'ALL' || campaign.status === overviewStatus)
+      && (overviewCampaign === 'ALL' || (campaign.company || campaign.client) === overviewCampaign)
+      && (overviewLocation === 'ALL' || campaign.location === overviewLocation);
+  });
+  const overviewMetrics = availableCampaigns.reduce((summary, campaign) => {
+    const metrics = campaignMetrics(campaign);
+    summary.vacancies += metrics.target;
+    summary.aptos += metrics.aptos;
+    summary.ingresos += metrics.ingresos;
+    if (['EN_PROCESO', 'PUBLICADO', 'ACTIVA'].includes(campaign.status)) summary.active += 1;
+    return summary;
+  }, { active: 0, vacancies: 0, aptos: 0, ingresos: 0 });
 
   // Candidates belonging to current active campaign
   const campaignCandidates = activeCampaign 
@@ -223,129 +261,76 @@ export const MisConvocatoriasView: React.FC = () => {
     setContactNextStep('');
   };
 
-  // If no campaign selected, render the Card Grid
+  // If no campaign selected, render the assigned campaigns overview.
   if (!activeCampaign) {
     return (
-      <div className="pipeline-overview space-y-6 pb-12">
-        {/* Top Banner */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="w-11 h-11 rounded-xl bg-[#0C2745] flex items-center justify-center text-white shadow-xs">
-              <Users className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">
-                Mis Convocatorias Asignadas
-              </h2>
-              <p className="text-xs text-slate-500">
-                Espacio de trabajo operativo para gestión de candidatos, avance de etapas y cumplimiento de cuotas
-              </p>
-            </div>
-          </div>
-        </div>
+      <div className="pipeline-overview space-y-5 pb-12">
+        <header>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-950">Mis Convocatorias Asignadas</h1>
+          <p className="mt-1 text-sm text-slate-500">Gestiona candidatos, avance de etapas y cumplimiento de cuotas.</p>
+        </header>
 
-        {/* Campaign Cards Grid */}
-        <div className="pipeline-campaign-grid">
-          {availableCampaigns.map(camp => {
-            const campCandidates = candidates.filter(c => c.campaignId === camp.id);
-            const myResp = camp.responsibles?.find(r => r.userId === currentUser.id);
-            const myMeta = myResp ? Number(myResp.target) : camp.vacancies;
-            const myIngresos = campCandidates.filter(c => 
-              (currentUser.role === 'RECLUTADOR' ? c.recruiterId === currentUser.id : true) &&
-              (c.currentStage === 'CONTRATADO' || c.selection?.hiringConfirmed)
-            ).length;
-            const myAptos = campCandidates.filter(c => 
-              (currentUser.role === 'RECLUTADOR' ? c.recruiterId === currentUser.id : true) &&
-              (c.selection?.stage === 'APTO_CAPACITACION' || c.currentStage === 'CAPACITACION' || c.currentStage === 'CONTRATADO')
-            ).length;
-            const cumplimiento = myMeta > 0 ? Math.round((myIngresos / myMeta) * 100) : 0;
+        <section className="grid overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xs sm:grid-cols-2 xl:grid-cols-4 xl:divide-x xl:divide-slate-200" aria-label="Resumen de convocatorias">
+          {[
+            { label: 'Convocatorias activas', value: overviewMetrics.active, icon: FileText, tone: 'text-sky-700 bg-sky-50' },
+            { label: 'Vacantes asignadas', value: overviewMetrics.vacancies, icon: Users, tone: 'text-slate-700 bg-slate-100' },
+            { label: 'Candidatos aptos', value: overviewMetrics.aptos, icon: UserCheck, tone: 'text-emerald-700 bg-emerald-50' },
+            { label: 'Ingresos realizados', value: overviewMetrics.ingresos, icon: BarChart3, tone: 'text-violet-700 bg-violet-50' },
+          ].map(({ label, value, icon: Icon, tone }) => <div key={label} className="flex items-center gap-3 px-5 py-4 sm:border-b sm:border-slate-100 xl:border-b-0">
+            <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}><Icon className="h-5 w-5" /></span>
+            <div><strong className="block text-2xl leading-none text-slate-950">{value}</strong><span className="mt-1 block text-xs text-slate-500">{label}</span></div>
+          </div>)}
+        </section>
+
+        <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xs lg:grid-cols-[minmax(220px,1fr)_160px_180px_180px_auto]">
+          <label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={overviewSearch} onChange={event => setOverviewSearch(event.target.value)} placeholder="Buscar por convocatoria, cargo o código..." className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs text-slate-800 outline-none transition focus:border-sky-400 focus:bg-white" /></label>
+          <label className="relative"><span className="absolute left-3 top-1.5 text-2xs font-semibold text-slate-500">Estado</span><select value={overviewStatus} onChange={event => setOverviewStatus(event.target.value)} className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pb-0 pt-3.5 text-xs font-semibold text-slate-700 outline-none"><option value="ALL">Todos</option>{['EN_PROCESO', 'PUBLICADO', 'ACTIVA', 'EN_PAUSA', 'CERRADO', 'ANULADO'].map(status => <option key={status} value={status}>{statusLabel(status as CampaignCall['status'])}</option>)}</select><ChevronDown className="pointer-events-none absolute bottom-2.5 right-3 h-4 w-4 text-slate-500" /></label>
+          <label className="relative"><span className="absolute left-3 top-1.5 text-2xs font-semibold text-slate-500">Campaña</span><select value={overviewCampaign} onChange={event => setOverviewCampaign(event.target.value)} className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pb-0 pt-3.5 text-xs font-semibold text-slate-700 outline-none"><option value="ALL">Todas</option>{campaignCompanies.map(company => <option key={company} value={company}>{company}</option>)}</select><ChevronDown className="pointer-events-none absolute bottom-2.5 right-3 h-4 w-4 text-slate-500" /></label>
+          <label className="relative"><span className="absolute left-3 top-1.5 text-2xs font-semibold text-slate-500">Sede</span><select value={overviewLocation} onChange={event => setOverviewLocation(event.target.value)} className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pb-0 pt-3.5 text-xs font-semibold text-slate-700 outline-none"><option value="ALL">Todas</option>{campaignLocations.map(location => <option key={location} value={location}>{location}</option>)}</select><ChevronDown className="pointer-events-none absolute bottom-2.5 right-3 h-4 w-4 text-slate-500" /></label>
+          <button type="button" onClick={() => { setOverviewSearch(''); setOverviewStatus('ALL'); setOverviewCampaign('ALL'); setOverviewLocation('ALL'); }} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-800"><Filter className="h-4 w-4" />Limpiar</button>
+        </section>
+
+        <section className="space-y-3" aria-label="Convocatorias asignadas">
+          {filteredOverviewCampaigns.map(camp => {
+            const { target, ingresos, aptos, advance } = campaignMetrics(camp);
             const deadline = camp.endDate ? new Date(`${camp.endDate}T12:00:00`) : null;
             const daysLeft = deadline && !Number.isNaN(deadline.getTime())
               ? Math.ceil((deadline.getTime() - Date.now()) / 86_400_000)
               : null;
-            const risk = cumplimiento >= 100
+            const risk = advance >= 100
               ? 'BAJO'
-              : daysLeft !== null && (daysLeft < 0 || (daysLeft <= 7 && cumplimiento < 70))
+              : daysLeft !== null && (daysLeft < 0 || (daysLeft <= 7 && advance < 70))
                 ? 'ALTO'
-                : (daysLeft !== null && daysLeft <= 15) || cumplimiento < 40
+                : (daysLeft !== null && daysLeft <= 15) || advance < 40
                   ? 'MEDIO'
                   : 'BAJO';
-            const statusText = camp.status === 'EN_PROCESO' ? 'En proceso' : camp.status === 'PUBLICADO' ? 'Publicado' : camp.status === 'CERRADO' ? 'Cerrado' : camp.status === 'ANULADO' ? 'Anulado' : camp.status;
+            const positiveStatus = ['PUBLICADO', 'EN_PROCESO', 'ACTIVA'].includes(camp.status);
+            const attentionStatus = camp.status === 'EN_PAUSA';
 
             return (
-              <div
+              <article
                 key={camp.id}
                 onClick={() => setSelectedCampaignId(camp.id)}
-                className="pipeline-campaign-card bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-sky-300 transition-all p-3 cursor-pointer flex flex-col justify-between group"
+                onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedCampaignId(camp.id); } }}
+                role="button"
+                tabIndex={0}
+                className="group grid cursor-pointer gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs transition hover:border-sky-300 hover:shadow-sm xl:grid-cols-[minmax(300px,0.9fr)_minmax(420px,1.35fr)_220px] xl:items-center"
               >
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-2xs font-bold text-sky-800 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg">
-                      {camp.code}
-                    </span>
-                    <span className={`inline-flex items-center gap-1.5 text-2xs font-semibold px-2 py-0.5 rounded-full ${
-                      camp.status === 'PUBLICADO' || camp.status === 'EN_PROCESO' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-700 border border-slate-200'
-                    }`}>
-                      <span className={`h-1.5 w-1.5 rounded-full ${camp.status === 'PUBLICADO' || camp.status === 'EN_PROCESO' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                      {statusText}
-                    </span>
-                  </div>
-
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-bold text-slate-900 group-hover:text-sky-700 transition-colors leading-tight">
-                      {camp.title}
-                    </h3>
-                    <p className="mt-0.5 truncate text-2xs text-slate-500">
-                      {camp.company || camp.client} • {camp.location}
-                    </p>
-                  </div>
-
-                  {/* Quotas & Metrics Grid */}
-                  <div className="grid grid-cols-3 gap-1 bg-slate-50 p-1.5 rounded-lg border border-slate-200 text-center">
-                    <div>
-                      <span className="text-2xs text-slate-500 block font-semibold">Meta</span>
-                      <strong className="block text-xs text-slate-900 font-bold">{myMeta}</strong>
-                    </div>
-                    <div>
-                      <span className="text-2xs text-slate-500 block font-semibold">Aptos</span>
-                      <strong className="block text-xs text-emerald-700 font-bold">{myAptos}</strong>
-                    </div>
-                    <div>
-                      <span className="text-2xs text-slate-500 block font-semibold">Ingresos</span>
-                      <strong className="block text-xs text-sky-800 font-bold">{myIngresos}</strong>
-                    </div>
-                  </div>
-
-                  {/* Progress Bar */}
-                  <div>
-                    <div className="flex justify-between text-[9px] text-slate-500 mb-1">
-                      <span>Avance</span>
-                      <strong className="text-slate-900 font-bold">{cumplimiento}%</strong>
-                    </div>
-                    <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-100">
-                      <div 
-                        className={`h-full rounded-full transition-all ${
-                          cumplimiento >= 100 ? 'bg-emerald-500' : cumplimiento >= 50 ? 'bg-sky-500' : 'bg-amber-500'
-                        }`}
-                        style={{ width: `${Math.min(100, cumplimiento)}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2 border-t border-slate-200 pt-2 text-[9px]">
-                    <span className="flex min-w-0 items-center gap-1 text-slate-500"><Calendar className="h-3 w-3 shrink-0" /><span className="truncate">{daysLeft === null ? 'Sin fecha límite' : daysLeft < 0 ? `Vencida ${Math.abs(daysLeft)}d` : `Vence en ${daysLeft}d`}</span></span>
-                    <span className={`inline-flex shrink-0 items-center gap-1 font-semibold ${risk === 'ALTO' ? 'text-rose-700' : risk === 'MEDIO' ? 'text-amber-700' : 'text-emerald-700'}`}><span className={`h-1.5 w-1.5 rounded-full ${risk === 'ALTO' ? 'bg-rose-500' : risk === 'MEDIO' ? 'bg-amber-500' : 'bg-emerald-500'}`} />{risk.toLowerCase()}</span>
-                  </div>
+                <div className="min-w-0 border-b border-slate-100 pb-4 xl:border-b-0 xl:border-r xl:pb-0 xl:pr-5">
+                  <div className="mb-3 flex items-start justify-between gap-3 xl:hidden"><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-2xs font-semibold ${positiveStatus ? 'bg-emerald-50 text-emerald-700' : attentionStatus ? 'bg-amber-50 text-amber-700' : camp.status === 'ANULADO' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-700'}`}><span className={`h-1.5 w-1.5 rounded-full ${positiveStatus ? 'bg-emerald-500' : attentionStatus ? 'bg-amber-500' : camp.status === 'ANULADO' ? 'bg-rose-500' : 'bg-slate-400'}`} />{statusLabel(camp.status)}</span></div>
+                  <div className="flex gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-700"><Building2 className="h-5 w-5" /></span><div className="min-w-0"><h2 className="truncate text-lg font-bold text-slate-950 group-hover:text-sky-800">{camp.company || camp.client || camp.title}</h2><p className="mt-0.5 text-sm font-semibold text-slate-700">{camp.title}</p><p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500"><MapPin className="h-3.5 w-3.5" />{camp.location || 'Sede sin definir'}</p><p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500"><FileText className="h-3.5 w-3.5" />{camp.code}</p></div></div>
                 </div>
-
-                <div className="mt-2 flex h-8 items-center justify-center gap-2 rounded-lg bg-[#0C2745] px-3 text-2xs text-white font-semibold transition group-hover:bg-[#154E7D]">
-                  <span>Abrir pipeline</span>
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                <div className="min-w-0 space-y-4">
+                  <div className="grid grid-cols-2 divide-x divide-slate-100 sm:grid-cols-4"><div className="px-3 first:pl-0"><span className="text-2xs text-slate-500">Meta</span><strong className="mt-1 block text-lg leading-none text-slate-950">{target}</strong></div><div className="px-3"><span className="text-2xs text-slate-500">Aptos</span><strong className="mt-1 block text-lg leading-none text-emerald-700">{aptos}</strong></div><div className="px-3"><span className="text-2xs text-slate-500">Ingresos</span><strong className="mt-1 block text-lg leading-none text-sky-800">{ingresos}</strong></div><div className="px-3"><span className="text-2xs text-slate-500">Avance</span><strong className="mt-1 block text-lg leading-none text-slate-950">{advance}%</strong></div></div>
+                  <div className="flex items-center gap-3"><div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${advance >= 100 ? 'bg-emerald-500' : advance >= 50 ? 'bg-sky-600' : 'bg-amber-500'}`} style={{ width: `${Math.min(100, advance)}%` }} /></div><span className="text-xs font-bold text-slate-700">{advance}%</span></div>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-500"><span className="inline-flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5" />{daysLeft === null ? 'Sin fecha límite' : daysLeft < 0 ? `Vencida hace ${Math.abs(daysLeft)} días` : `Vence en ${daysLeft} días`}</span><span className={`inline-flex items-center gap-1.5 font-semibold ${risk === 'ALTO' ? 'text-rose-700' : risk === 'MEDIO' ? 'text-amber-700' : 'text-emerald-700'}`}><span className={`h-1.5 w-1.5 rounded-full ${risk === 'ALTO' ? 'bg-rose-500' : risk === 'MEDIO' ? 'bg-amber-500' : 'bg-emerald-500'}`} />Prioridad {risk === 'BAJO' ? 'baja' : risk === 'MEDIO' ? 'media' : 'alta'}</span></div>
                 </div>
-              </div>
+                <div className="flex items-center justify-between gap-3 xl:flex-col xl:items-end"><span className={`hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-2xs font-semibold xl:inline-flex ${positiveStatus ? 'bg-emerald-50 text-emerald-700' : attentionStatus ? 'bg-amber-50 text-amber-700' : camp.status === 'ANULADO' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-700'}`}><span className={`h-1.5 w-1.5 rounded-full ${positiveStatus ? 'bg-emerald-500' : attentionStatus ? 'bg-amber-500' : camp.status === 'ANULADO' ? 'bg-rose-500' : 'bg-slate-400'}`} />{statusLabel(camp.status)}</span><button type="button" onClick={event => { event.stopPropagation(); setSelectedCampaignId(camp.id); }} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0C2745] px-5 text-sm font-bold text-white shadow-sm transition hover:bg-[#154E7D]"><span>Abrir pipeline</span><ArrowRight className="h-4 w-4" /></button></div>
+              </article>
             );
           })}
-        </div>
+          {!filteredOverviewCampaigns.length && <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-14 text-center text-sm text-slate-500">No hay convocatorias que coincidan con los filtros.</div>}
+        </section>
       </div>
     );
   }
@@ -495,6 +480,7 @@ export const MisConvocatoriasView: React.FC = () => {
             { id: 'resumen', label: 'Resumen', icon: FileText },
             { id: 'fuentes', label: 'Fuentes', icon: Share2 },
             { id: 'indicadores', label: 'Métricas', icon: BarChart3 },
+            { id: 'proceso', label: 'Proceso y plantillas', icon: FileText },
           ].map(tab => {
             const Icon = tab.icon;
             const isActive = activeSubTab === tab.id;
@@ -519,6 +505,7 @@ export const MisConvocatoriasView: React.FC = () => {
       </div>
 
       {/* SUBTAB 1 (PRIMARY): LISTADO DE POSTULANTES Y CAMBIO DE ESTADO */}
+      {activeSubTab === 'proceso' && activeCampaign && <SelectionProcessConfiguration campaignId={activeCampaign.id} />}
       {activeSubTab === 'candidatos' && (
         <div className="space-y-5">
           

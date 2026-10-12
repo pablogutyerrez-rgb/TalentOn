@@ -1,4 +1,10 @@
 FIREBASE_CLIENT_EMAIL=
+CAPTURE_HASH_SECRET=
+TURNSTILE_SECRET_KEY=
+SUPABASE_URL=
+SUPABASE_SECRET_KEY=
+# Alternativa legacy; usar preferentemente SUPABASE_SECRET_KEY.
+SUPABASE_SERVICE_ROLE_KEY=
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"
 # Solo si se necesita firma S3 externa; con binding DOCUMENTS no se usan.
 R2_ACCOUNT_ID=

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useTalent } from '../../context/TalentContext';
 import { CampaignCall, ProcessType, ManagementType, ConvocatoriaStatus } from '../../types';
+import { getWorkerErrorMessage } from '../../services/workerApi';
 
 interface ConvocatoriaModalProps {
   isOpen: boolean;
@@ -54,8 +55,11 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
     'Buena dicción y fluidez verbal'
   ]);
   const [newReq, setNewReq] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   useEffect(() => {
+    if (isOpen) setSubmitError('');
     if (convocatoriaToEdit) {
       setCompany(convocatoriaToEdit.company || convocatoriaToEdit.client || '');
       setTitle(convocatoriaToEdit.title);
@@ -118,6 +122,7 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!company.trim() || !title.trim()) return;
 
     const assignedAnalyst = availableUsers.find(u => u.id === assignedAnalystId);
@@ -147,13 +152,17 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
       requirements: requirementsList
     };
 
-    if (convocatoriaToEdit) {
-      await updateConvocatoria(convocatoriaToEdit.id, payload);
-    } else {
-      await createConvocatoria(payload);
+    setIsSubmitting(true);
+    setSubmitError('');
+    try {
+      if (convocatoriaToEdit) await updateConvocatoria(convocatoriaToEdit.id, payload);
+      else await createConvocatoria(payload);
+      onClose();
+    } catch (error) {
+      setSubmitError(getWorkerErrorMessage(error, 'No se pudo guardar la convocatoria. Inténtalo nuevamente.'));
+    } finally {
+      setIsSubmitting(false);
     }
-
-    onClose();
   };
 
   const isRecruiter = currentUser.role === 'RECLUTADOR';
@@ -187,6 +196,7 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
+          {submitError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-medium text-rose-700">{submitError}</div>}
           
           {/* Section 1: Datos Principales */}
           <div>
@@ -538,6 +548,7 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
           <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-3">
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={onClose}
               className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 border border-slate-300 rounded-lg hover:bg-slate-50 cursor-pointer"
             >
@@ -545,10 +556,10 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isRecruiter}
+              disabled={isRecruiter || isSubmitting}
               className="px-5 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-50"
             >
-              {convocatoriaToEdit ? 'Guardar Cambios' : 'Crear Convocatoria'}
+              {isSubmitting ? 'Guardando…' : convocatoriaToEdit ? 'Guardar Cambios' : 'Crear Convocatoria'}
             </button>
           </div>
 

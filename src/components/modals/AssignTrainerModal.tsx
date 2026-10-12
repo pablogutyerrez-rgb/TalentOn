@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useTalent } from '../../context/TalentContext';
 import { TrainingCohort, UserProfile } from '../../types';
+import { getWorkerErrorMessage } from '../../services/workerApi';
 
 interface AssignTrainerModalProps {
   isOpen: boolean;
@@ -41,7 +42,7 @@ export const AssignTrainerModal: React.FC<AssignTrainerModalProps> = ({
     setIsLoading(true);
     void listAvailableTrainers(cohort.id)
       .then(trainers => { if (active) setFormadores(trainers); })
-      .catch(error => { if (active) setErrorMsg(error instanceof Error ? error.message : 'No se pudieron cargar los formadores disponibles.'); })
+      .catch(error => { if (active) setErrorMsg(getWorkerErrorMessage(error, 'No se pudieron cargar los formadores disponibles.')); })
       .finally(() => { if (active) setIsLoading(false); });
     return () => { active = false; };
   }, [cohort?.id, cohort?.trainerId, isOpen]);
@@ -72,8 +73,7 @@ export const AssignTrainerModal: React.FC<AssignTrainerModalProps> = ({
       const friendly = code === 'FIRESTORE_404'
         ? 'Esta capacitación no existe en la base de datos. Recarga la vista e inténtalo nuevamente.'
         : code === 'TRAINER_NOT_AVAILABLE' ? 'El formador ya no está activo o no tiene acceso a Formación.'
-          : code === 'FORBIDDEN' ? 'No tienes permiso para reasignar esta capacitación.'
-            : code || 'No se pudo guardar la asignación.';
+          : getWorkerErrorMessage(error, 'No se pudo guardar la asignación.');
       setErrorMsg(friendly);
     } finally {
       setIsSaving(false);

@@ -162,8 +162,8 @@ export const ConvocatoriasView: React.FC = () => {
     setActiveModule('MIS_CONVOCATORIAS');
   };
 
-  return <div className="space-y-5 pb-10">
-    <section className="flex flex-wrap items-center justify-between gap-4">
+  return <div className="talent-campaigns space-y-5 pb-10">
+    <section className="talent-page-heading flex flex-wrap items-center justify-between gap-4">
       <div>
         <h2 className="text-xl font-bold text-slate-900">Gestión de Convocatorias</h2>
         <p className="mt-1 text-xs text-slate-500">Administra y monitorea tus convocatorias de selección en curso.</p>
@@ -171,7 +171,7 @@ export const ConvocatoriasView: React.FC = () => {
       {canCreate && <button type="button" onClick={() => { setConvocatoriaToEdit(null); setIsCreateModalOpen(true); }} className="flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-sky-800"><Plus className="h-4 w-4" />Nueva convocatoria</button>}
     </section>
 
-    <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <section className="talent-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <KpiCard title="Convocatorias activas" value={activeCount} detail={`De ${scopedCampaigns.length} en total`} icon={BriefcaseBusiness} />
       <KpiCard title="Vacantes totales" value={totalVacancies} detail="En todas las convocatorias" icon={Users} />
       <KpiCard title="Cobertura promedio" value={`${averageCoverage}%`} detail="Promedio ponderado" icon={Target} />

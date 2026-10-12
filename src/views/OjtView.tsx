@@ -27,6 +27,7 @@ import {
   Briefcase
 } from 'lucide-react';
 import { useTalent } from '../context/TalentContext';
+import { getWorkerErrorMessage } from '../services/workerApi';
 import { 
   CandidateRecord, 
   OjtStatus, 
@@ -129,14 +130,14 @@ export const OjtView: React.FC = () => {
       ahtSeconds: Number(metricAht),
       qaScore: Number(metricQa),
       attendanceStatus: 'PRESENTE'
-    }); setShowMetricModal(false); } catch (error) { setActionError(error instanceof Error ? error.message : 'No se pudo guardar la métrica.'); } finally { setIsSaving(false); }
+    }); setShowMetricModal(false); } catch (error) { setActionError(getWorkerErrorMessage(error, 'No se pudo guardar la métrica.')); } finally { setIsSaving(false); }
   };
 
   const handleSaveSkills = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeCandidate) return;
     setActionError(''); setIsSaving(true);
-    try { await updateOjtSkillsMatrix(activeCandidate.id, skillsForm); setShowSkillsModal(false); } catch (error) { setActionError(error instanceof Error ? error.message : 'No se pudo guardar la evaluación.'); } finally { setIsSaving(false); }
+    try { await updateOjtSkillsMatrix(activeCandidate.id, skillsForm); setShowSkillsModal(false); } catch (error) { setActionError(getWorkerErrorMessage(error, 'No se pudo guardar la evaluación.')); } finally { setIsSaving(false); }
   };
 
   const handleSaveFeedback = async (e: React.FormEvent) => {
@@ -152,12 +153,12 @@ export const OjtView: React.FC = () => {
     }); setShowFeedbackModal(false);
     setFbStrong('');
     setFbImprove('');
-    setFbPlan(''); } catch (error) { setActionError(error instanceof Error ? error.message : 'No se pudo guardar el feedback.'); } finally { setIsSaving(false); }
+    setFbPlan(''); } catch (error) { setActionError(getWorkerErrorMessage(error, 'No se pudo guardar el feedback.')); } finally { setIsSaving(false); }
   };
 
   const handleApproveAptoAlta = async (candId: string) => {
     setActionError(''); setIsSaving(true);
-    try { await updateParticipantTrainingStatus(candId, 'APTO_ALTA', 'Completó satisfactoriamente el periodo OJT. Apto para contratación.'); } catch (error) { setActionError(error instanceof Error ? error.message : 'No se pudo actualizar el resultado.'); } finally { setIsSaving(false); }
+    try { await updateParticipantTrainingStatus(candId, 'APTO_ALTA', 'Completó satisfactoriamente el periodo OJT. Apto para contratación.'); } catch (error) { setActionError(getWorkerErrorMessage(error, 'No se pudo actualizar el resultado.')); } finally { setIsSaving(false); }
   };
 
   const handleApplyExtension = async (e: React.FormEvent) => {
@@ -165,7 +166,7 @@ export const OjtView: React.FC = () => {
     if (!activeCandidate) return;
     if (!canExtendOjt) return setActionError('Solo Jefe o Coordinación de Formación puede extender el OJT.');
     setActionError(''); setIsSaving(true);
-    try { if (activeCandidate.training?.cohortId) await extendCohortOjt(activeCandidate.training.cohortId, extensionDays, extensionReason); setShowExtensionModal(false); } catch (error) { setActionError(error instanceof Error ? error.message : 'No se pudo extender el OJT.'); } finally { setIsSaving(false); }
+    try { if (activeCandidate.training?.cohortId) await extendCohortOjt(activeCandidate.training.cohortId, extensionDays, extensionReason); setShowExtensionModal(false); } catch (error) { setActionError(getWorkerErrorMessage(error, 'No se pudo extender el OJT.')); } finally { setIsSaving(false); }
   };
 
   return (

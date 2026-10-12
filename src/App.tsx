@@ -3,6 +3,7 @@ import { TalentProvider, useTalent } from './context/TalentContext';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { LoginView } from './components/auth/LoginView';
+import { SupabaseAccessGate } from './components/auth/SupabaseAccessGate';
 import { ActiveNavModule, UserProfile } from './types';
 
 const Candidate360Modal = lazy(() => import('./components/candidates/Candidate360Modal').then(module => ({ default: module.Candidate360Modal })));
@@ -10,6 +11,8 @@ const DashboardView = lazy(() => import('./views/DashboardView').then(module => 
 const ConvocatoriasView = lazy(() => import('./views/ConvocatoriasView').then(module => ({ default: module.ConvocatoriasView })));
 const MisConvocatoriasView = lazy(() => import('./views/MisConvocatoriasView').then(module => ({ default: module.MisConvocatoriasView })));
 const CandidatosView = lazy(() => import('./views/CandidatosView').then(module => ({ default: module.CandidatosView })));
+const CaptacionView = lazy(() => import('./views/CaptacionView').then(module => ({ default: module.CaptacionView })));
+const PublicCaptureView = lazy(() => import('./views/PublicCaptureView').then(module => ({ default: module.PublicCaptureView })));
 const FormacionDashboardView = lazy(() => import('./views/FormacionDashboardView').then(module => ({ default: module.FormacionDashboardView })));
 const CapacitacionesView = lazy(() => import('./views/CapacitacionesView').then(module => ({ default: module.CapacitacionesView })));
 const MisCapacitacionesView = lazy(() => import('./views/MisCapacitacionesView').then(module => ({ default: module.MisCapacitacionesView })));
@@ -24,6 +27,7 @@ const ConvocatoriaModal = lazy(() => import('./components/modals/ConvocatoriaMod
 const CreateTrainingCohortModal = lazy(() => import('./components/modals/CreateTrainingCohortModal').then(module => ({ default: module.CreateTrainingCohortModal })));
 
 const rolesForView: Partial<Record<ActiveNavModule, UserProfile['role'][]>> = {
+  SELECCION_CAPTACION: ['ADMIN', 'RECLUTADOR', 'ANALISTA_SELECCION'],
   SELECCION_DASHBOARD: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION', 'RECLUTADOR'],
   CONVOCATORIAS: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION'],
   SELECCION_CONVOCATORIAS: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION'],
@@ -58,6 +62,7 @@ const MainLayout: React.FC = () => {
     closeCandidate360,
     currentUser,
     setActiveModule,
+    connectionError,
   } = useTalent();
 
   useEffect(() => {
@@ -70,17 +75,21 @@ const MainLayout: React.FC = () => {
   const [isCandidateModalOpen, setIsCandidateModalOpen] = useState(false);
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
   const [isCohortModalOpen, setIsCohortModalOpen] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
 
   return (
     <div className="talent-app flex h-screen bg-slate-100 overflow-hidden font-sans antialiased text-slate-900">
       {/* Sidebar navigation */}
-      <Sidebar />
+      <Sidebar navigationOpen={navigationOpen} onCloseNavigation={() => setNavigationOpen(false)} />
+      {navigationOpen && <button className="talent-navigation-backdrop" aria-label="Cerrar menú" onClick={() => setNavigationOpen(false)} />}
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         
         {/* Top Header */}
         <Header 
+          navigationOpen={navigationOpen}
+          onToggleNavigation={() => setNavigationOpen(open => !open)}
           onOpenNewCandidateModal={() => setIsCandidateModalOpen(true)}
           onOpenNewCampaignModal={() => setIsCampaignModalOpen(true)}
           onOpenNewCohortModal={() => setIsCohortModalOpen(true)}
@@ -88,8 +97,10 @@ const MainLayout: React.FC = () => {
 
         {/* Scrollable View Container */}
         <main className="talent-content flex-1 overflow-y-auto custom-scrollbar">
+          {connectionError && <div role="alert" className="m-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{connectionError}<button className="ml-4 underline" onClick={()=>window.dispatchEvent(new Event('talent:data-changed'))}>Reintentar</button></div>}
           <Suspense fallback={<div className="py-12 text-center text-slate-500">Cargando módulo…</div>}>
-          <div className="w-full space-y-6">
+          <div className="talent-view w-full space-y-6">
+            {activeModule === 'SELECCION_CAPTACION' && <CaptacionView />}
             
             {/* SELECCIÓN MODULE */}
             {(activeModule === 'INICIO' || activeModule === 'SELECCION_DASHBOARD' || (activeModule as string) === 'DASHBOARD') && (
@@ -187,11 +198,13 @@ const MainLayout: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated } = useTalent();
-  return isAuthenticated ? <MainLayout /> : <LoginView />;
+  const { isAuthenticated, mustChangePassword } = useTalent();
+  return isAuthenticated ? (mustChangePassword ? <SupabaseAccessGate /> : <MainLayout />) : <LoginView />;
 };
 
 export default function App() {
+  const captureRoute = window.location.pathname.match(/^\/captacion\/([a-f0-9]{48})$/);
+  if (captureRoute) return <Suspense fallback={<p className="p-6">Cargando formulario…</p>}><PublicCaptureView token={captureRoute[1]} /></Suspense>;
   return (
     <TalentProvider>
       <AppContent />

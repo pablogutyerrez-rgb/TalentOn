@@ -14,19 +14,24 @@ import {
   CheckCircle,
   X,
   Building2,
-  Users
+  Users,
+  Menu
 } from 'lucide-react';
 import { useTalent } from '../../context/TalentContext';
 import { ActiveNavModule } from '../../types';
 import { IdentityAvatar } from '../common/IdentityAvatar';
 
 interface HeaderProps {
+  navigationOpen?: boolean;
+  onToggleNavigation?: () => void;
   onOpenNewCandidateModal: () => void;
   onOpenNewCampaignModal: () => void;
   onOpenNewCohortModal: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  navigationOpen,
+  onToggleNavigation,
   onOpenNewCandidateModal,
   onOpenNewCampaignModal,
   onOpenNewCohortModal
@@ -48,6 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
   // Derive title from active module
   const getModuleMeta = (mod: ActiveNavModule) => {
     switch (mod) {
+      case 'SELECCION_CAPTACION': return { title: 'Captación', subtitle: 'Enlaces y bandeja de postulantes', section: 'Selección' };
       case 'INICIO':
       case 'SELECCION_DASHBOARD':
         return {
@@ -155,15 +161,13 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="talent-header bg-white border-b border-slate-200 flex items-center justify-between z-20 shrink-0 shadow-[0_2px_12px_rgba(12,30,53,0.025)]">
       {/* Left: View title & Breadcrumb */}
       <div className="flex items-center gap-3">
+        <button className="talent-navigation-toggle" aria-label="Abrir menú" aria-controls="talent-navigation" aria-expanded={navigationOpen} onClick={onToggleNavigation}><Menu size={20} /></button>
         <div>
-          <div className="flex items-center gap-2 text-2xs font-medium text-slate-500">
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
             <span>{currentMeta.section}</span>
             <span>/</span>
             <span className="text-slate-800 font-semibold">{currentMeta.title}</span>
           </div>
-          <h1 className="text-xs font-semibold text-slate-900 leading-tight tracking-tight">
-            {currentMeta.title}
-          </h1>
         </div>
       </div>
 

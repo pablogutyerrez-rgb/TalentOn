@@ -1,4 +1,4 @@
-import { auth } from './firebase';
+import { supabaseAccessToken } from './supabase';
 
 const baseUrl = (import.meta.env.VITE_ADMIN_API_URL || import.meta.env.VITE_WORKER_API_URL)?.replace(/\/$/, '');
 
@@ -11,14 +11,58 @@ export class WorkerApiError extends Error {
   }
 }
 
+const WORKER_ERROR_MESSAGES: Record<string, string> = {
+  'Worker API no está configurada o no existe sesión.': 'El servicio administrativo no está configurado o tu sesión venció.',
+  WORKER_NETWORK_UNREACHABLE: 'No se pudo conectar con el servicio. Verifica tu conexión e inténtalo nuevamente.',
+  FIREBASE_TOKEN_UNAVAILABLE: 'No se pudo validar tu sesión. Vuelve a iniciar sesión e inténtalo nuevamente.',
+  UNAUTHENTICATED: 'Tu sesión venció. Vuelve a iniciar sesión.',
+  INVALID_TOKEN: 'Tu sesión ya no es válida. Vuelve a iniciar sesión.',
+  FORBIDDEN: 'No tienes permisos para realizar esta acción.',
+  ACTIVE_APPLICATION_EXISTS: 'El postulante ya tiene una convocatoria activa. Debes cerrar esa participación antes de vincular otra.',
+  ALREADY_ENROLLED: 'El postulante ya participó en esta convocatoria. Se conserva su inscripción e historial.',
+  APPLICATION_NOT_FINISHED: 'Para cerrar, primero registra un resultado final de selección.',
+  APPLICATION_CLOSED: 'La participación está cerrada y sus resultados son de solo consulta.',
+  CAPTURE_REVIEW_REQUIRED: 'La identidad del postulante necesita revisión administrativa antes de vincularlo.',
+  PROCESS_REQUIREMENTS_INCOMPLETE: 'Verifica los requisitos de la etapa en Gestión avanzada antes de continuar.',
+  PROCESS_EVALUATIONS_INCOMPLETE: 'Completa y aprueba las evaluaciones de la versión aplicada antes de continuar.',
+  CANDIDATE_IN_DOWNSTREAM_PROCESS: 'El postulante está en Formación, OJT o Talento; no se puede iniciar otra convocatoria.',
+  INVALID_PROCESS_TEMPLATE: 'La plantilla debe pertenecer a la convocatoria y autorizar al responsable de captación.',
+  ORIGIN_NOT_ALLOWED: 'Este origen no está autorizado para usar el servicio.',
+  ACCOUNT_DISABLED: 'Tu cuenta está inactiva. Contacta a un administrador.',
+  WORKER_REQUEST_FAILED: 'No se pudo completar la operación. Inténtalo nuevamente.',
+  INVALID_STAGE_TRANSITION: 'El cambio de etapa solicitado no está permitido.',
+  SELECTION_REQUIREMENTS_INCOMPLETE: 'Completa los requisitos de selección antes de continuar.',
+  INVALID_TRAINING_TRANSITION: 'El cambio de estado de capacitación no está permitido.',
+  ATTENDANCE_WINDOW_LOCKED: 'La asistencia está bloqueada para esta fecha. Solicita un desbloqueo.',
+  ATTENDANCE_UNLOCK_REASON_REQUIRED: 'Ingresa un motivo válido para solicitar el desbloqueo.',
+  ATTENDANCE_UNLOCK_ALREADY_REQUESTED: 'Ya existe una solicitud de desbloqueo para esta fecha.',
+  PARTICIPANT_NOT_READY_FOR_OJT: 'El participante aún no cumple los requisitos para iniciar OJT.',
+  OJT_DAY_ALREADY_RECORDED: 'Ya existe un registro OJT para este participante y fecha.',
+  EVALUATION_ALREADY_RECORDED: 'Esta evaluación ya fue registrada para el participante.',
+  RECRUITER_NOT_AVAILABLE: 'El responsable seleccionado no está activo o no pertenece a la empresa.',
+  CANDIDATE_NOT_ELIGIBLE: 'El candidato aún no cumple los requisitos para el alta.',
+  DOCUMENTS_NOT_VALIDATED: 'Aún existen documentos obligatorios pendientes de validación.',
+  CONTRACT_NOT_PENDING_SIGNATURE: 'El contrato no se encuentra pendiente de firma.',
+  SUPABASE_API_NOT_CONFIGURED: 'El servicio Supabase no está configurado.',
+  SUPABASE_MODULE_NOT_READY: 'Este módulo aún no tiene adaptador Supabase. No se consultará Firebase.',
+  PASSWORD_CHANGE_REQUIRED: 'Debes cambiar la contraseña temporal antes de continuar.',
+  PASSWORD_MIN_12: 'La nueva contraseña debe tener al menos 12 caracteres.',
+  LAST_ADMIN_REQUIRED: 'Debes conservar al menos un administrador activo.',
+  DUPLICATE_RECORD: 'Ya existe un registro con esos datos.',
+  CAPTURE_RETRY: 'Los datos cambiaron mientras guardabas. Actualiza e inténtalo nuevamente.',
+  CV_NOT_FOUND: 'El candidato no tiene un CV disponible.',
+};
+
+export function getWorkerErrorMessage(error: unknown, fallback = 'No se pudo completar la operación.'): string {
+  const raw = error instanceof Error ? error.message.trim() : '';
+  if (WORKER_ERROR_MESSAGES[raw]) return WORKER_ERROR_MESSAGES[raw];
+  // Los códigos internos son útiles para diagnóstico, pero no para el usuario final.
+  if (!raw || /^[A-Z][A-Z0-9_]+$/.test(raw) || /^internal(?:\s|$)/i.test(raw)) return fallback;
+  return raw;
+}
+
 export async function workerApi<T>(path: string, init: RequestInit = {}): Promise<T> {
-  if (!baseUrl || !auth?.currentUser) throw new Error('Worker API no está configurada o no existe sesión.');
-  let token: string;
-  try {
-    token = await auth.currentUser.getIdToken();
-  } catch {
-    throw new WorkerApiError(0, 'FIREBASE_TOKEN_UNAVAILABLE');
-  }
+  const token = await authenticatedToken();
   let response: Response;
   try {
     response = await fetch(`${baseUrl}${path}`, {
@@ -36,12 +80,14 @@ export async function workerApi<T>(path: string, init: RequestInit = {}): Promis
     console.error(`[Worker API] ${init.method ?? 'GET'} ${path} failed (${response.status}): ${message}`);
     throw new WorkerApiError(response.status, message);
   }
-  return response.json() as Promise<T>;
+  const payload = await response.json() as T;
+  if (init.method && !['GET','HEAD'].includes(init.method.toUpperCase())) window.dispatchEvent(new Event('talent:data-changed'));
+  return payload;
 }
 
 async function authenticatedToken(): Promise<string> {
-  if (!baseUrl || !auth?.currentUser) throw new Error('Worker API no está configurada o no existe sesión.');
-  try { return await auth.currentUser.getIdToken(); } catch { throw new WorkerApiError(0, 'FIREBASE_TOKEN_UNAVAILABLE'); }
+  if (!baseUrl) throw new WorkerApiError(503,'SUPABASE_API_NOT_CONFIGURED');
+  try { return await supabaseAccessToken(); } catch { throw new WorkerApiError(401,'UNAUTHENTICATED'); }
 }
 
 export async function workerUpload<T>(path: string, formData: FormData): Promise<T> {
@@ -53,7 +99,9 @@ export async function workerUpload<T>(path: string, formData: FormData): Promise
     const payload = await result.json().catch((): WorkerErrorPayload => ({}));
     throw new WorkerApiError(result.status, typeof payload.message === 'string' ? payload.message : 'WORKER_REQUEST_FAILED');
   }
-  return result.json() as Promise<T>;
+  const payload = await result.json() as T;
+  window.dispatchEvent(new Event('talent:data-changed'));
+  return payload;
 }
 
 export async function workerDownload(path: string): Promise<Blob> {

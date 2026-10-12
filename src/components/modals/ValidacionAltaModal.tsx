@@ -21,6 +21,7 @@ import { CandidateEligibility, CandidateRecord } from '../../types';
 import { useTalent } from '../../context/TalentContext';
 import { evaluateAltaReadiness } from '../../utils/expedientUtils';
 import { IdentityAvatar } from '../common/IdentityAvatar';
+import { getWorkerErrorMessage } from '../../services/workerApi';
 
 interface ValidacionAltaModalProps {
   isOpen: boolean;
@@ -51,7 +52,7 @@ export const ValidacionAltaModal: React.FC<ValidacionAltaModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     setEligibility(null); setSubmitError('');
-    void getCandidateEligibility(candidate.id).then(setEligibility).catch(error => setSubmitError(error instanceof Error ? error.message : 'No fue posible validar la elegibilidad.'));
+    void getCandidateEligibility(candidate.id).then(setEligibility).catch(error => setSubmitError(getWorkerErrorMessage(error, 'No fue posible validar la elegibilidad.')));
   }, [isOpen, candidate.id]);
 
   if (!isOpen) return null;
@@ -77,7 +78,7 @@ export const ValidacionAltaModal: React.FC<ValidacionAltaModalProps> = ({
     try {
       await approveParticipantToTalentAlta(candidate.id, altaNotes);
       onClose(); if (onSuccess) onSuccess();
-    } catch (error) { setSubmitError(error instanceof Error ? error.message : 'No fue posible dar de alta al candidato.'); }
+    } catch (error) { setSubmitError(getWorkerErrorMessage(error, 'No fue posible dar de alta al candidato.')); }
     finally { setIsSubmitting(false); }
   };
 

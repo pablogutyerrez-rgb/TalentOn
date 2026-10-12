@@ -1,6 +1,4 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { browserLocalPersistence, browserSessionPersistence, onAuthStateChanged, setPersistence, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { collection, doc, documentId, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { 
   CandidateRecord, 
   CampaignCall, 
@@ -34,8 +32,9 @@ import {
   ExpedientStatus,
   CandidateEligibility,
   HiringStatus,
+  SystemSettings,
 } from '../types';
-import { auth, db, isFirebaseConfigured } from '../services/firebase';
+import { supabase, signInSupabase, signOutSupabase, isSupabaseConfigured } from '../services/supabase';
 import { workerApi, workerDownload, workerUpload } from '../services/workerApi';
 import { normalizeAvatarUrl, sanitizeDisplayName } from '../utils/identity';
 
@@ -46,10 +45,12 @@ const emptyUser: UserProfile = { id: '', email: '', name: '', role: 'RECLUTADOR'
 const normalizeUserIdentity = (user: UserProfile): UserProfile => ({
   ...user,
   name: sanitizeDisplayName(user.name),
+  nickname: user.nickname ? sanitizeDisplayName(user.nickname, '') : undefined,
+  tagline: user.tagline ? sanitizeDisplayName(user.tagline, '') : undefined,
   avatarUrl: normalizeAvatarUrl(user.avatarUrl),
 });
 const profileFromFirestore = (id: string, data: Record<string, unknown>): UserProfile => ({
-  id, companyId: typeof data.companyId === 'string' ? data.companyId : undefined, email: typeof data.username === 'string' ? data.username : '', name: sanitizeDisplayName(typeof data.displayName === 'string' ? data.displayName : (typeof data.name === 'string' ? data.name : 'Usuario')), role: data.role as UserProfile['role'], avatarUrl: normalizeAvatarUrl(typeof data.avatarUrl === 'string' ? data.avatarUrl : ''), status: data.status === 'INACTIVO' || data.enabled === false ? 'INACTIVO' : 'ACTIVO', jobTitle: typeof data.jobTitle === 'string' ? data.jobTitle : undefined, allowedModules: Array.isArray(data.module) ? data.module as UserProfile['allowedModules'] : (Array.isArray(data.allowedModules) ? data.allowedModules as UserProfile['allowedModules'] : defaultModulesForRole[data.role as UserProfile['role']]), scopeCampaignIds: Array.isArray(data.scope) ? data.scope as string[] : (Array.isArray(data.scopeCampaignIds) ? data.scopeCampaignIds as string[] : []), subordinateUserIds: Array.isArray(data.subordinateUserIds) ? data.subordinateUserIds as string[] : [],
+  id, companyId: typeof data.companyId === 'string' ? data.companyId : undefined, email: typeof data.username === 'string' ? data.username : '', name: sanitizeDisplayName(typeof data.displayName === 'string' ? data.displayName : (typeof data.name === 'string' ? data.name : 'Usuario')), nickname: typeof data.nickname === 'string' ? sanitizeDisplayName(data.nickname, '') : undefined, tagline: typeof data.tagline === 'string' ? sanitizeDisplayName(data.tagline, '') : undefined, role: data.role as UserProfile['role'], avatarUrl: normalizeAvatarUrl(typeof data.avatarUrl === 'string' ? data.avatarUrl : ''), status: data.status === 'INACTIVO' || data.enabled === false ? 'INACTIVO' : 'ACTIVO', jobTitle: typeof data.jobTitle === 'string' ? data.jobTitle : undefined, allowedModules: Array.isArray(data.module) ? data.module as UserProfile['allowedModules'] : (Array.isArray(data.allowedModules) ? data.allowedModules as UserProfile['allowedModules'] : defaultModulesForRole[data.role as UserProfile['role']]), scopeCampaignIds: Array.isArray(data.scope) ? data.scope as string[] : (Array.isArray(data.scopeCampaignIds) ? data.scopeCampaignIds as string[] : []), subordinateUserIds: Array.isArray(data.subordinateUserIds) ? data.subordinateUserIds as string[] : [],
 });
 const campaignFromFirestore = (id: string, data: Record<string, unknown>): CampaignCall => {
   const campaign = { id, ...data } as CampaignCall;
@@ -111,6 +112,9 @@ interface TalentContextType {
   // Current logged in user & role
   currentUser: UserProfile;
   isAuthenticated: boolean;
+  mustChangePassword: boolean;
+  connectionError: string;
+  changeInitialPassword: (password: string) => Promise<void>;
   login: (username: string, password: string, remember?: boolean) => Promise<{ success: boolean; message?: string }>;
   logout: () => Promise<void>;
   availableUsers: UserProfile[];
@@ -120,6 +124,8 @@ interface TalentContextType {
   deleteUser: (userId: string) => Promise<void>;
   toggleUserStatus: (userId: string) => Promise<void>;
   resetUserPassword: (userId: string, newPassword: string) => Promise<void>;
+  getSystemSettings: () => Promise<SystemSettings>;
+  updateSystemSettings: (settings: SystemSettings) => Promise<SystemSettings>;
 
   // Data collections
   candidates: CandidateRecord[];
@@ -249,6 +255,8 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const [currentUser, setCurrentUserState] = useState<UserProfile>(emptyUser);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [connectionError, setConnectionError] = useState('');
 
   const [candidates, setCandidates] = useState<CandidateRecord[]>([]);
 
@@ -261,52 +269,6 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [selectedCohortId, setSelectedCohortId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
-
-  useEffect(() => {
-    if (!db || !isAuthenticated) return;
-    const base = collection(db, 'campaigns'); const companyId = currentUser.companyId || ''; const scope = (currentUser.scopeCampaignIds || []).slice(0, 30);
-    const sources = currentUser.role === 'ADMIN' ? [query(base)]
-      : ['JEFE_SELECCION', 'JEFE_FORMACION', 'JEFE_TALENTO'].includes(currentUser.role) && companyId ? [query(base, where('companyId', '==', companyId))]
-      : currentUser.role === 'ANALISTA_SELECCION' && companyId ? [query(base, where('companyId', '==', companyId), where('assignedAnalystId', '==', currentUser.id)), ...(scope.length ? [query(base, where('companyId', '==', companyId), where(documentId(), 'in', scope))] : [])]
-      : currentUser.role === 'RECLUTADOR' && companyId ? [query(base, where('companyId', '==', companyId), where('assignedUserIds', 'array-contains', currentUser.id))]
-      : ['COORDINADOR_FORMACION', 'ANALISTA_TALENTO'].includes(currentUser.role) && companyId && scope.length ? [query(base, where('companyId', '==', companyId), where(documentId(), 'in', scope))]
-      : [];
-    if (!sources.length) { setCampaigns([]); return; }
-    const buckets = new Map<number, CampaignCall[]>(); const publish = () => setCampaigns(Array.from(new Map(Array.from(buckets.values()).flat().map(item => [item.id, item])).values()));
-    const unsubscribers = sources.map((source, index) => onSnapshot(source, snapshot => { buckets.set(index, snapshot.docs.map(item => campaignFromFirestore(item.id, item.data()))); publish(); }, () => { buckets.set(index, []); publish(); }));
-    return () => unsubscribers.forEach(unsubscribe => unsubscribe());
-  }, [isAuthenticated, currentUser.id, currentUser.role, currentUser.companyId, currentUser.scopeCampaignIds?.join('|')]);
-
-  useEffect(() => {
-    if (!db || !isAuthenticated) return;
-    const base = collection(db, 'trainings'); const companyId = currentUser.companyId || ''; const scope = (currentUser.scopeCampaignIds || []).slice(0, 30);
-    const sources = currentUser.role === 'ADMIN' ? [query(base)]
-      : ['JEFE_FORMACION', 'JEFE_SELECCION'].includes(currentUser.role) && companyId ? [query(base, where('companyId', '==', companyId))]
-      : currentUser.role === 'COORDINADOR_FORMACION' && companyId ? [query(base, where('companyId', '==', companyId), where('coordinatorId', '==', currentUser.id)), ...(scope.length ? [query(base, where('companyId', '==', companyId), where('campaignId', 'in', scope))] : [])]
-      : currentUser.role === 'FORMADOR' && companyId ? [query(base, where('companyId', '==', companyId), where('trainerId', '==', currentUser.id))]
-      : [];
-    if (!sources.length) { setCohorts([]); return; }
-    const buckets = new Map<number, TrainingCohort[]>(); const publish = () => setCohorts(Array.from(new Map(Array.from(buckets.values()).flat().map(item => [item.id, item])).values()));
-    const unsubscribers = sources.map((source, index) => onSnapshot(source, snapshot => { buckets.set(index, snapshot.docs.map(item => trainingFromFirestore(item.id, item.data()))); publish(); }, () => { buckets.set(index, []); publish(); }));
-    return () => unsubscribers.forEach(unsubscribe => unsubscribe());
-  }, [isAuthenticated, currentUser.id, currentUser.role, currentUser.companyId, currentUser.scopeCampaignIds?.join('|')]);
-
-  useEffect(() => {
-    if (!db || !isAuthenticated) return;
-    const base = collection(db, 'candidates'); const companyId = currentUser.companyId || ''; const scope = (currentUser.scopeCampaignIds || []).slice(0, 30); const assignedCampaigns = campaigns.map(item => item.id).slice(0, 30); const trainingIds = cohorts.map(item => item.id).slice(0, 30);
-    const sources = currentUser.role === 'ADMIN' ? [query(base)]
-      : ['JEFE_SELECCION', 'JEFE_FORMACION', 'JEFE_TALENTO'].includes(currentUser.role) && companyId ? [query(base, where('companyId', '==', companyId))]
-      : currentUser.role === 'ANALISTA_SELECCION' && companyId ? [query(base, where('companyId', '==', companyId), where('analystId', '==', currentUser.id)), ...(scope.length ? [query(base, where('companyId', '==', companyId), where('campaignId', 'in', scope))] : [])]
-      : currentUser.role === 'RECLUTADOR' && companyId ? [query(base, where('companyId', '==', companyId), where('recruiterId', '==', currentUser.id)), ...(assignedCampaigns.length ? [query(base, where('companyId', '==', companyId), where('campaignId', 'in', assignedCampaigns))] : [])]
-      : ['COORDINADOR_FORMACION', 'FORMADOR'].includes(currentUser.role) && companyId && trainingIds.length ? [query(base, where('companyId', '==', companyId), where('trainingId', 'in', trainingIds))]
-      : currentUser.role === 'ANALISTA_TALENTO' && companyId && scope.length ? [scope.includes(companyId) ? query(base, where('companyId', '==', companyId)) : query(base, where('companyId', '==', companyId), where('campaignId', 'in', scope))]
-      : [];
-    if (!sources.length) { setCandidates([]); return; }
-    const buckets = new Map<number, CandidateRecord[]>(); const publish = () => setCandidates(Array.from(new Map(Array.from(buckets.values()).flat().map(item => [item.id, item])).values()));
-    const unsubscribers = sources.map((source, index) => onSnapshot(source, snapshot => { buckets.set(index, snapshot.docs.map(item => candidateFromFirestore(item.id, item.data()))); publish(); }, () => { buckets.set(index, []); publish(); }));
-    return () => unsubscribers.forEach(unsubscribe => unsubscribe());
-  }, [isAuthenticated, currentUser.id, currentUser.role, currentUser.companyId, currentUser.scopeCampaignIds?.join('|'), campaigns.map(item => item.id).join('|'), cohorts.map(item => item.id).join('|')]);
-
 
   const adjustActiveModuleForUser = (user: UserProfile) => {
     if (user.role === 'ADMIN') return;
@@ -346,80 +308,79 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
+  const loadSupabaseProfile = async (isCurrent = () => true) => {
+    const data = await workerApi<{id:string;companyId:string;username:string;name:string;role:UserProfile['role'];status:'ACTIVO';allowedModules:UserProfile['allowedModules'];mustChangePassword:boolean;avatarUrl?:string;nickname?:string;tagline?:string;phone?:string;jobTitle?:string;scope?:string[];subordinateUserIds?:string[]}>('/api/session');
+    const profile: UserProfile = normalizeUserIdentity({id:data.id,companyId:data.companyId,email:data.username,name:data.name,role:data.role,status:data.status,allowedModules:data.allowedModules,avatarUrl:data.avatarUrl||'',nickname:data.nickname,tagline:data.tagline,phone:data.phone,jobTitle:data.jobTitle,scopeCampaignIds:data.scope||[],subordinateUserIds:data.subordinateUserIds||[]});
+    if (!isCurrent()) return profile;
+    setCurrentUserState(profile);
+    setMustChangePassword(data.mustChangePassword === true);
+    setIsAuthenticated(true);
+    setConnectionError('');
+    return profile;
+  };
+
   useEffect(() => {
-    if (!auth || !db || !isFirebaseConfigured) return;
-    return onAuthStateChanged(auth, async firebaseUser => {
-      if (!firebaseUser) return setIsAuthenticated(false);
-      try {
-        const profileSnapshot = await getDoc(doc(db, 'users', firebaseUser.uid));
-        if (!profileSnapshot.exists()) throw new Error('PROFILE_MISSING');
-        const profile = profileFromFirestore(firebaseUser.uid, profileSnapshot.data());
-        if (profile.status !== 'ACTIVO') throw new Error('PROFILE_DISABLED');
-        setCurrentUserState(profile);
-        setIsAuthenticated(true);
-      } catch {
-        await signOut(auth);
-        setIsAuthenticated(false);
-      }
+    if (!supabase) return;
+    let active = true;
+    let generation = 0;
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      const current = ++generation;
+      if (!session) { setIsAuthenticated(false); setMustChangePassword(false); setCurrentUserState(emptyUser); setUsers([]); setCandidates([]); setCampaigns([]); setCohorts([]); return; }
+      // Fuera del callback SDK para evitar bloquear su mutex de sesión.
+      queueMicrotask(() => {
+        if (!active || current !== generation) return;
+        void loadSupabaseProfile(() => active && current === generation).catch(() => {
+          if (active && current === generation) { setIsAuthenticated(false); setConnectionError('No se pudo validar el perfil en el servidor Supabase.'); }
+        });
+      });
     });
+    return () => { active = false; generation++; data.subscription.unsubscribe(); };
   }, []);
 
-  useEffect(() => {
-    if (!db || !isAuthenticated || currentUser.role !== 'ADMIN') return;
-    return onSnapshot(collection(db, 'users'), snapshot => {
-      setUsers(snapshot.docs.map(item => profileFromFirestore(item.id, item.data())));
-    }, () => setUsers([]));
-  }, [isAuthenticated, currentUser.role]);
-
-  useEffect(() => {
-    if (!isAuthenticated || currentUser.role === 'ADMIN') return;
-    if (!['JEFE_SELECCION', 'ANALISTA_SELECCION', 'JEFE_FORMACION', 'COORDINADOR_FORMACION', 'JEFE_TALENTO'].includes(currentUser.role)) {
-      setUsers([]);
-      return;
-    }
-    let active = true;
-    void workerApi<{ users: UserProfile[] }>('/api/users/assignable')
-      .then(result => { if (active) setUsers(result.users.map(normalizeUserIdentity)); })
-      .catch(() => { if (active) setUsers([]); });
-    return () => { active = false; };
-  }, [isAuthenticated, currentUser.id, currentUser.role]);
-
   const login = async (username: string, password: string, remember = true) => {
-    if (!auth || !db || !isFirebaseConfigured) return { success: false, message: 'Firebase no está configurado.' };
+    if (!isSupabaseConfigured) return {success:false,message:'Supabase no está configurado.'};
     try {
-      const normalizedUsername = username.trim().toLowerCase();
-      if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(normalizedUsername)) return { success: false, message: 'Usuario o contraseña incorrectos.' };
-      await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence);
-      const credential = await signInWithEmailAndPassword(auth, `${normalizedUsername}@auth.talentcc.invalid`, password);
-      const profileSnapshot = await getDoc(doc(db, 'users', credential.user.uid));
-      if (!profileSnapshot.exists()) {
-        await signOut(auth);
-        return { success: false, message: 'Tu cuenta no tiene un perfil autorizado.' };
-      }
-      const profile = profileFromFirestore(credential.user.uid, profileSnapshot.data());
-      if (profile.status !== 'ACTIVO') {
-        await signOut(auth);
-        return { success: false, message: 'Tu usuario está deshabilitado.' };
-      }
-      setCurrentUserState(profile);
+      const {error} = await signInSupabase(username,password,remember);
+      if (error) return {success:false,message:'Usuario o contraseña incorrectos.'};
+      const profile = await loadSupabaseProfile();
       adjustActiveModuleForUser(profile);
-      setIsAuthenticated(true);
-      return { success: true };
-    } catch (error: unknown) {
-      const code = (error as { code?: string }).code;
-      if (code === 'auth/invalid-credential' || code === 'auth/user-not-found' || code === 'auth/wrong-password') return { success: false, message: 'Usuario o contraseña incorrectos.' };
-      if (code === 'auth/too-many-requests') return { success: false, message: 'Demasiados intentos. Intenta más tarde.' };
-      if (code === 'auth/network-request-failed') return { success: false, message: 'No se pudo conectar con Firebase Authentication. Verifica conexión, API Key y que Email/Password esté habilitado.' };
-      if (code === 'auth/operation-not-allowed') return { success: false, message: 'El acceso por usuario y contraseña no está habilitado en Firebase Authentication.' };
-      if (code === 'auth/api-key-not-valid') return { success: false, message: 'La API Key de Firebase no es válida para Authentication.' };
-      return { success: false, message: 'No fue posible iniciar sesión.' };
+      return {success:true};
+    } catch {
+      await signOutSupabase().catch(() => {});
+      return {success:false,message:'No se pudo validar el perfil Supabase. Comprueba el servicio de sesión.'};
     }
   };
-
   const logout = async () => {
-    if (auth) await signOut(auth);
+    await signOutSupabase();
     setIsAuthenticated(false);
+    setMustChangePassword(false);
+    setCurrentUserState(emptyUser);
+    setUsers([]); setCandidates([]); setCampaigns([]); setCohorts([]);
   };
+  const changeInitialPassword = async (password: string) => {
+    await workerApi('/api/session/password',{method:'POST',body:JSON.stringify({password})});
+    // Exigir nueva autenticación con la contraseña elegida.
+    await logout();
+  };
+
+  useEffect(() => {
+    if (!isAuthenticated || mustChangePassword) return;
+    let active=true, running=false, queued=false;
+    const refresh=async()=>{
+      if(running){queued=true;return;}
+      running=true;
+      try {
+        const data=await workerApi<{users:UserProfile[];campaigns:CampaignCall[];cohorts:TrainingCohort[];candidates:CandidateRecord[]}>('/api/bootstrap');
+        if(active){const self=data.users.find(u=>u.id===currentUser.id);if(self)setCurrentUserState(normalizeUserIdentity(self));setUsers(data.users.map(normalizeUserIdentity));setCampaigns(data.campaigns.map(c=>campaignFromFirestore(c.id,c as unknown as Record<string,unknown>)));setCohorts(data.cohorts.map(c=>trainingFromFirestore(c.id,c as unknown as Record<string,unknown>)));setCandidates(data.candidates.map(c=>candidateFromFirestore(c.id,c as unknown as Record<string,unknown>)));setConnectionError('');}
+      } catch { if(active)setConnectionError('No se pudieron actualizar los datos de Supabase. Intenta nuevamente.'); }
+      finally {running=false;if(active&&queued){queued=false;void refresh();}}
+    };
+    const update=()=>void refresh();
+    const visibility=()=>{if(document.visibilityState==='visible')update();};
+    update();const timer=window.setInterval(()=>{if(document.visibilityState==='visible')update();},30000);
+    window.addEventListener('talent:data-changed',update);window.addEventListener('focus',update);document.addEventListener('visibilitychange',visibility);
+    return()=>{active=false;window.clearInterval(timer);window.removeEventListener('talent:data-changed',update);window.removeEventListener('focus',update);document.removeEventListener('visibilitychange',visibility);};
+  },[isAuthenticated,mustChangePassword,currentUser.id]);
 
   const addUser = async (userData: Omit<UserProfile, 'id'> & { password: string }): Promise<UserProfile> => {
     const payload = {
@@ -434,6 +395,8 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       scope: userData.scopeCampaignIds || [],
       subordinateUserIds: userData.subordinateUserIds || [],
       avatarUrl: normalizeAvatarUrl(userData.avatarUrl),
+      nickname: userData.nickname ? sanitizeDisplayName(userData.nickname, '') : '',
+      tagline: userData.tagline ? sanitizeDisplayName(userData.tagline, '') : '',
       companyId: userData.companyId || currentUser.companyId,
     };
     await workerApi('/api/users', { method: 'POST', body: JSON.stringify(payload) });
@@ -450,18 +413,20 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       displayName,
       name: displayName,
       username: usernameChanged ? normalizedUsername : undefined,
-      phone: data.phone,
-      jobTitle: data.jobTitle,
-      role: data.role || currentUser.role,
-      status: data.status || 'ACTIVO',
-      enabled: (data.status || 'ACTIVO') === 'ACTIVO',
-      module: data.allowedModules,
-      allowedModules: data.allowedModules,
-      scope: data.scopeCampaignIds || [],
-      scopeCampaignIds: data.scopeCampaignIds || [],
-      subordinateUserIds: data.subordinateUserIds || [],
+      phone: data.phone ?? existingUser?.phone ?? '',
+      jobTitle: data.jobTitle ?? existingUser?.jobTitle ?? '',
+      role: data.role || existingUser?.role || currentUser.role,
+      status: data.status || existingUser?.status || 'ACTIVO',
+      enabled: (data.status || existingUser?.status || 'ACTIVO') === 'ACTIVO',
+      module: data.allowedModules ?? existingUser?.allowedModules,
+      allowedModules: data.allowedModules ?? existingUser?.allowedModules,
+      scope: data.scopeCampaignIds ?? existingUser?.scopeCampaignIds ?? [],
+      scopeCampaignIds: data.scopeCampaignIds ?? existingUser?.scopeCampaignIds ?? [],
+      subordinateUserIds: data.subordinateUserIds ?? existingUser?.subordinateUserIds ?? [],
       avatarUrl,
-      companyId: data.companyId || currentUser.companyId,
+      nickname: typeof data.nickname === 'string' ? sanitizeDisplayName(data.nickname, '') : undefined,
+      tagline: typeof data.tagline === 'string' ? sanitizeDisplayName(data.tagline, '') : undefined,
+      companyId: data.companyId || existingUser?.companyId || currentUser.companyId,
     }).filter(([, value]) => value !== undefined));
     await workerApi(`/api/users/${encodeURIComponent(userId)}/access`, { method: 'PATCH', body: JSON.stringify(normalizedData) });
     if (currentUser.id === userId) {
@@ -485,6 +450,12 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const resetUserPassword = async (userId: string, newPassword: string) => {
     await workerApi(`/api/users/${encodeURIComponent(userId)}/reset-password`, { method: 'POST', body: JSON.stringify({ newPassword }) });
   };
+
+  const getSystemSettings = () => workerApi<SystemSettings>('/api/settings');
+  const updateSystemSettings = (settings: SystemSettings) => workerApi<SystemSettings>('/api/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(settings),
+  });
 
   // Derive scoped campaigns by role
   const scopedCampaigns = campaigns.filter(camp => {
@@ -894,7 +865,7 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const recordBulkAttendance = async (cohortId: string, dayNumber: number, date: string, status: AttendanceStatus) => {
     const participantIds = cohorts.find(cohort => cohort.id === cohortId)?.participantIds ?? candidates.filter(candidate => candidate.training?.cohortId === cohortId).map(candidate => candidate.id);
-    await Promise.all(participantIds.map(candidateId => workerApi(`/api/trainings/${encodeURIComponent(cohortId)}/participants/${encodeURIComponent(candidateId)}/attendance`, { method: 'POST', body: JSON.stringify({ dayNumber, date, attendance: status, status }) })));
+    await workerApi(`/api/trainings/${encodeURIComponent(cohortId)}/attendance/bulk`, {method:'POST',body:JSON.stringify({candidateIds:participantIds,dayNumber,date,attendance:status,status})});
   };
 
   const getAttendanceWindow = (cohortId: string, date: string) => workerApi<AttendanceWindowInfo>(`/api/trainings/${encodeURIComponent(cohortId)}/attendance-window?date=${encodeURIComponent(date)}`);
@@ -981,6 +952,9 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     <TalentContext.Provider value={{
       currentUser,
       isAuthenticated,
+      mustChangePassword,
+      connectionError,
+      changeInitialPassword,
       login,
       logout,
       availableUsers: users,
@@ -990,6 +964,8 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       deleteUser,
       toggleUserStatus,
       resetUserPassword,
+      getSystemSettings,
+      updateSystemSettings,
       candidates,
       campaigns,
       cohorts,

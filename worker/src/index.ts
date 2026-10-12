@@ -1,4 +1,14 @@
-export interface Env {
+import { handleCapture, CaptureError } from './capture';
+import { relationalSession, changeFirstPassword, type SessionProfile } from './supabaseSession';
+import { RelationalRuntime, type RuntimeEnv } from './relationalRuntime';
+import { relationalIdentity } from './supabaseIdentity';
+import { SupabaseError, type SupabaseEnv } from './supabase';
+import { handleSelectionAdvanced, checkProcessApproval, checkProcessStage } from './selectionAdvanced';
+export interface Env extends SupabaseEnv, RuntimeEnv {
+  RELATIONAL_ACTOR?: SessionProfile;
+  DATA_PROVIDER?: string;
+  CAPTURE_HASH_SECRET?: string;
+  TURNSTILE_SECRET_KEY?: string;
   FIREBASE_PROJECT_ID: string;
   FIREBASE_CLIENT_EMAIL: string;
   FIREBASE_PRIVATE_KEY: string;
@@ -10,9 +20,9 @@ export interface Env {
 }
 
 type Role = 'ADMIN' | 'JEFE_SELECCION' | 'ANALISTA_SELECCION' | 'RECLUTADOR' | 'JEFE_FORMACION' | 'COORDINADOR_FORMACION' | 'FORMADOR' | 'JEFE_TALENTO' | 'ANALISTA_TALENTO';
-type Profile = { uid: string; username: string; displayName: string; role: Role; companyId: string; module: string[]; allowedModules: string[]; scope: string[]; enabled: boolean; status: string };
+type Profile = { uid: string; username: string; displayName: string; role: Role; companyId: string; module: string[]; allowedModules: string[]; scope: string[]; subordinateUserIds?: string[]; enabled: boolean; status: string };
 type FirestoreValue = { stringValue?: string; integerValue?: string; doubleValue?: number; booleanValue?: boolean; timestampValue?: string; nullValue?: null; arrayValue?: { values?: FirestoreValue[] }; mapValue?: { fields?: Record<string, FirestoreValue> } };
-type FirestoreDocument = { name?: string; fields?: Record<string, FirestoreValue> };
+type FirestoreDocument = { name?: string; fields?: Record<string, FirestoreValue>; updateTime?: string };
 type FirestoreDocumentList = { documents?: FirestoreDocument[] };
 type GoogleErrorPayload = { error?: { message?: unknown; status?: unknown } };
 const firebaseJwksUrl = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
@@ -108,6 +118,7 @@ function unpack(value: Record<string, FirestoreValue>): Record<string, unknown> 
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, firestoreData(item)]));
 }
 async function googleAccessToken(env: Env) {
+  if (env.DATA_PROVIDER !== 'firebase') return 'RELATIONAL_SERVER_CONTEXT';
   const now = Math.floor(Date.now() / 1000); const part = (v: unknown) => btoa(JSON.stringify(v)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const assertionHead = part({ alg: 'RS256', typ: 'JWT' }); const assertionBody = part({ iss: env.FIREBASE_CLIENT_EMAIL, scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/identitytoolkit', aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 });
   const key = await crypto.subtle.importKey('pkcs8', pemToDer(env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
@@ -117,13 +128,24 @@ async function googleAccessToken(env: Env) {
   const data = await r.json<{ access_token?: string }>(); if (!r.ok || !data.access_token) throw new Error(`GOOGLE_AUTH_${r.status}`); return data.access_token;
 }
 const documentUrl = (env: Env, path: string) => `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${path}`;
-async function firestore(env: Env, path: string, method = 'GET', data?: Record<string, unknown>) {
+async function firestore(env: Env, path: string, method = 'GET', data?: Record<string, unknown>, expectedUpdateTime?: string) {
+  if (env.DATA_PROVIDER !== 'firebase') {
+    const store=env.RELATIONAL_RUNTIME; if(!store) throw new Error('RELATIONAL_CONTEXT_MISSING');
+    const current=await store.get(path);
+    if (method==='GET') { if(!current) throw new Error('FIRESTORE_404'); return {fields:fields(current),updateTime:String(current.__rowVersion||1)} as FirestoreDocument; }
+    if(method!=='PATCH'||!data||!isRecord(data.fields)) throw new Error('INVALID_RELATIONAL_OPERATION');
+    if(expectedUpdateTime && expectedUpdateTime!==String(current?.__rowVersion||1)) throw new CaptureError('El expediente cambió. Actualiza antes de guardar.',409);
+    await store.write(path,unpack(data.fields as Record<string,FirestoreValue>));
+    return {fields:data.fields,updateTime:String(current?.__rowVersion||1)} as FirestoreDocument;
+  }
   const token = await googleAccessToken(env); const url = new URL(documentUrl(env, path));
   if (method === 'PATCH' && data && isRecord(data.fields)) Object.keys(data.fields).forEach(field => url.searchParams.append('updateMask.fieldPaths', field));
+  if (expectedUpdateTime) url.searchParams.set('currentDocument.updateTime', expectedUpdateTime);
   const r = await fetch(url.toString(), { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: data ? JSON.stringify(data) : undefined });
-  if (!r.ok) throw new Error(`FIRESTORE_${r.status}`); return r.json<FirestoreDocument>();
+  if (!r.ok) { if (expectedUpdateTime && [409, 412].includes(r.status)) throw new CaptureError('El expediente cambió. Actualiza antes de guardar.', 409); throw new Error(`FIRESTORE_${r.status}`); } return r.json<FirestoreDocument>();
 }
 async function firestoreServerWrite(env: Env, path: string, data: Record<string, unknown>, serverTimestampFields: string[]) {
+  if(env.DATA_PROVIDER!=='firebase') { if(!env.RELATIONAL_RUNTIME)throw new Error('RELATIONAL_CONTEXT_MISSING'); await env.RELATIONAL_RUNTIME.write(path,{...data,...Object.fromEntries(serverTimestampFields.map(k=>[k,new Date().toISOString()]))}); return; }
   const token = await googleAccessToken(env);
   const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(env.FIREBASE_PROJECT_ID)}/databases/(default)/documents:commit`;
   const documentName = `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${path}`;
@@ -143,6 +165,7 @@ async function firestoreServerWrite(env: Env, path: string, data: Record<string,
   }
 }
 async function listFirestore(env: Env, path: string): Promise<Record<string, unknown>[]> {
+  if(env.DATA_PROVIDER!=='firebase') { if(!env.RELATIONAL_RUNTIME)throw new Error('RELATIONAL_CONTEXT_MISSING'); return env.RELATIONAL_RUNTIME.query(path); }
   const token = await googleAccessToken(env);
   const result = await fetch(documentUrl(env, path), { headers: { authorization: `Bearer ${token}` } });
   if (!result.ok) throw new Error(`FIRESTORE_${result.status}`);
@@ -186,9 +209,16 @@ async function createCampaign(request: Request, env: Env, actor: Profile) {
 }
 async function updateCampaign(request: Request, env: Env, actor: Profile, id: string) {
   const existing = await campaign(env, id); requireSelectionManager(actor); if (!campaignAllowed(actor, existing)) throw new Error('FORBIDDEN');
-  const input = await request.json<Record<string, unknown>>(); const vacancies = numberValue(input.vacancies, numberValue(existing.vacancies)); const responsibles = input.responsibles ?? existing.responsibles;
+  const input = await request.json<Record<string, unknown>>();
+  const editableFields = ['code', 'company', 'client', 'title', 'area', 'serviceType', 'salaryBase', 'variableBonus', 'adminBonus', 'mobilityBonus', 'additionalConditions', 'requestDate', 'startDate', 'endDate', 'processType', 'managementType', 'vacancies', 'location', 'shift', 'observations', 'status', 'assignedAnalystId', 'assignedAnalystName', 'requirements'];
+  const patch: Record<string, unknown> = {};
+  for (const field of editableFields) if (input[field] !== undefined) patch[field] = input[field];
+  if (!Object.keys(patch).length) throw new Error('INVALID_CAMPAIGN');
+  const validStatuses = ['EN_PROCESO', 'PUBLICADO', 'CERRADO', 'ANULADO', 'ACTIVA', 'EN_PAUSA'];
+  if (patch.status !== undefined && !validStatuses.includes(String(patch.status))) throw new Error('INVALID_STATUS');
+  const vacancies = numberValue(patch.vacancies, numberValue(existing.vacancies)); const responsibles = existing.responsibles;
   if (responsibleTargets(responsibles) > vacancies && input.allowOverTargetQuota !== true && existing.allowOverTargetQuota !== true) throw new Error('TARGET_EXCEEDS_VACANCIES');
-  const covered = numberValue(input.positionsCovered, numberValue(existing.positionsCovered)); const data = { ...input, positionsPending: Math.max(0, vacancies - covered), updatedAt: new Date().toISOString(), updatedBy: actor.uid };
+  const covered = numberValue(existing.positionsCovered); const data = { ...patch, positionsPending: Math.max(0, vacancies - covered), updatedAt: new Date().toISOString(), updatedBy: actor.uid };
   await firestore(env, `campaigns/${id}`, 'PATCH', { fields: fields(data) }); return response({ ok: true }, 200, cors(request, env));
 }
 async function updateCampaignStatus(request: Request, env: Env, actor: Profile, id: string) {
@@ -211,7 +241,7 @@ async function updateCampaignSource(request: Request, env: Env, actor: Profile, 
   const sources = Array.isArray(existing.sources) ? existing.sources.map(item => isRecord(item) && item.sourceName === input.sourceName ? { ...item, isEnabled: input.isEnabled } : item) : [];
   await firestore(env, `campaigns/${id}`, 'PATCH', { fields: fields({ sources, updatedAt: new Date().toISOString(), updatedBy: actor.uid }) }); return response({ ok: true }, 200, cors(request, env));
 }
-async function candidate(env: Env, id: string): Promise<Record<string, unknown>> { const data = await firestore(env, `candidates/${id}`); return unpack(data.fields ?? {}); }
+async function candidate(env: Env, id: string): Promise<Record<string, unknown>> { const data = await firestore(env, `candidates/${id}`); return { ...unpack(data.fields ?? {}), __updateTime: data.updateTime }; }
 function candidateAllowed(profile: Profile, data: Record<string, unknown>): boolean {
   if (profile.role === 'ADMIN') return true;
   if (data.companyId !== profile.companyId) return false;
@@ -238,54 +268,84 @@ async function createCandidate(request: Request, env: Env, actor: Profile) {
   const id = `CAN-${dni}`;
   try { await candidate(env, id); throw new Error('DUPLICATE_CANDIDATE'); } catch (error) { if (!(error instanceof Error) || error.message !== 'FIRESTORE_404') throw error; }
   const now = new Date(); const date = now.toISOString().slice(0, 10); const time = now.toISOString().slice(11, 16);
-  const recruiterId = actor.role === 'RECLUTADOR' ? actor.uid : (typeof input.recruiterId === 'string' ? input.recruiterId : actor.uid);
-  const selection = isRecord(input.selection) ? input.selection : {};
+  const requestedRecruiterId = typeof input.recruiterId === 'string' ? input.recruiterId : actor.uid;
+  const recruiterId = actor.role === 'RECLUTADOR' ? actor.uid : requestedRecruiterId;
+  let recruiterName = actor.displayName;
+  if (recruiterId !== actor.uid) {
+    const recruiter = unpack((await firestore(env, `users/${recruiterId}`)).fields ?? {});
+    const recruiterModules = strings(recruiter.allowedModules).length ? strings(recruiter.allowedModules) : strings(recruiter.module);
+    if (recruiter.role !== 'RECLUTADOR' || recruiter.companyId !== actor.companyId || recruiter.enabled === false || recruiter.status !== 'ACTIVO' || !recruiterModules.includes('SELECCION')) throw new Error('RECRUITER_NOT_AVAILABLE');
+    recruiterName = String(recruiter.displayName ?? recruiter.name ?? recruiter.username ?? 'Reclutador');
+  }
   const traceability = [{ id: `TR-${crypto.randomUUID()}`, date, time, user: actor.displayName, previousStage: 'N/A', newStage: 'NUEVO', observation: 'Postulación registrada.' }];
-  const data = { ...input, id, companyId: actor.companyId, campaignId, recruiterId, applicationDate: typeof input.applicationDate === 'string' ? input.applicationDate : date, currentStage: 'SELECCION', selection: { ...selection, callId: campaignId, stage: 'NUEVO', status: 'ACTIVO', traceability, contactHistory: [], evaluations: [], evaluationsList: [] }, createdAt: now.toISOString(), createdBy: actor.uid };
+  const allowedFields = ['fullName', 'firstName', 'lastName', 'email', 'phone', 'city', 'district', 'address', 'birthDate', 'age', 'campaignCode', 'campaignName', 'jobProfile', 'source', 'cvUrl', 'observationsGeneral'];
+  const safeInput: Record<string, unknown> = {};
+  for (const field of allowedFields) if (input[field] !== undefined) safeInput[field] = input[field];
+  const data = { ...safeInput, id, dni, companyId: actor.companyId, campaignId, recruiterId, recruiterName, analystId: campaignData.assignedAnalystId ?? '', analystName: campaignData.assignedAnalystName ?? '', applicationDate: typeof input.applicationDate === 'string' ? input.applicationDate : date, currentProcess: 'SELECCION', currentStage: 'SELECCION', selection: { callId: campaignId, stage: 'NUEVO', status: 'ACTIVO', traceability, contactHistory: [], evaluations: [], evaluationsList: [] }, createdAt: now.toISOString(), createdBy: actor.uid };
   await firestore(env, `candidates/${id}`, 'PATCH', { fields: fields(data) }); return response(data, 201, cors(request, env));
 }
 async function candidateStage(request: Request, env: Env, actor: Profile, id: string) {
   const current = await candidate(env, id); requireSelectionUser(actor); if (!await candidateAllowedWithAssignment(env, actor, current)) throw new Error('FORBIDDEN'); const input = await request.json<{ stage?: unknown; discardReason?: unknown; discardDetail?: unknown; observation?: unknown; date?: unknown; time?: unknown }>();
   if (typeof input.stage !== 'string' || !selectionStages.includes(input.stage)) throw new Error('INVALID_STAGE');
+  checkProcessStage(current, input.stage, actor);
   const selection = isRecord(current.selection) ? current.selection : {}; const previousStage = typeof selection.stage === 'string' ? selection.stage : 'NUEVO'; const discarded = input.stage === 'NO_APTO' || input.stage === 'DESCARTADO'; const history = Array.isArray(selection.traceability) ? selection.traceability : [];
+  if (current.selectionActive === false) throw new CaptureError('Esta participación está cerrada. Vincula otra convocatoria manualmente.', 409);
   if (!selectionTransitions[previousStage]?.includes(input.stage)) throw new Error('INVALID_STAGE_TRANSITION');
   if (input.stage === 'APTO_CAPACITACION') {
+    checkProcessApproval(current);
     const interview = isRecord(selection.interviewResult) ? selection.interviewResult : {}; const technical = isRecord(selection.technicalVerification) ? selection.technicalVerification : {}; const evaluations = Array.isArray(selection.evaluationsList) ? selection.evaluationsList : [];
     if (interview.status !== 'APTO' || technical.status === 'NO_APRUEBA' || !technical.status || evaluations.length === 0 || evaluations.some(item => !isRecord(item) || !['APTO', 'APROBADO'].includes(String(item.result)))) throw new Error('SELECTION_REQUIREMENTS_INCOMPLETE');
   }
   const now = new Date().toISOString(); const trace = { id: `TR-${crypto.randomUUID()}`, date: now.slice(0, 10), time: now.slice(11, 16), user: actor.displayName, previousStage, newStage: input.stage, observation: typeof input.observation === 'string' ? input.observation : `Cambio de etapa a ${input.stage}` };
   const next = { ...selection, stage: input.stage, status: discarded ? 'NO_APTO' : 'ACTIVO', discardReason: discarded && typeof input.discardReason === 'string' ? input.discardReason : selection.discardReason, traceability: [...history, trace] };
-  await firestore(env, `candidates/${id}`, 'PATCH', { fields: fields({ selection: next, currentStage: discarded ? 'DESCARTADO' : 'SELECCION', updatedAt: new Date().toISOString(), updatedBy: actor.uid }) }); return response({ ok: true }, 200, cors(request, env));
+  await firestore(env, `candidates/${id}`, 'PATCH', { fields: fields({ selection: next, currentStage: discarded ? 'DESCARTADO' : 'SELECCION', updatedAt: new Date().toISOString(), updatedBy: actor.uid }) }, current.__updateTime as string | undefined); return response({ ok: true }, 200, cors(request, env));
 }
 async function appendCandidateItem(request: Request, env: Env, actor: Profile, id: string, kind: 'contacts' | 'evaluations' | 'observations') {
   const current = await candidate(env, id); requireSelectionUser(actor); if (!await candidateAllowedWithAssignment(env, actor, current)) throw new Error('FORBIDDEN'); const item = await request.json<Record<string, unknown>>(); const selection = isRecord(current.selection) ? current.selection : {};
+  if (current.selectionProcessSnapshot && kind === 'evaluations' && item.definitionId !== undefined) throw new CaptureError('Usa la evaluación configurada en Gestión avanzada.', 409);
+  if (current.selectionActive === false) throw new CaptureError('Esta participación está cerrada.', 409);
   const field = kind === 'contacts' ? 'contactHistory' : kind === 'evaluations' ? 'evaluationsList' : 'observations'; const oldItems = Array.isArray(selection[field]) ? selection[field] : []; const prefix = kind === 'contacts' ? 'CNT' : kind === 'evaluations' ? 'EV' : 'OBS'; const created = { ...item, id: `${prefix}-${crypto.randomUUID()}`, responsibleId: actor.uid, responsibleName: actor.displayName, recordedAt: new Date().toISOString() };
   const next = kind === 'contacts' ? { ...selection, contactHistory: [...oldItems, created] } : kind === 'evaluations' ? { ...selection, evaluationsList: [...oldItems, created], evaluations: [...oldItems, created] } : { ...selection, observations: [...oldItems, created] };
-  await firestore(env, `candidates/${id}`, 'PATCH', { fields: fields({ selection: next, updatedAt: new Date().toISOString(), updatedBy: actor.uid }) }); return response({ ok: true }, 201, cors(request, env));
+  await firestore(env, `candidates/${id}`, 'PATCH', { fields: fields({ selection: next, updatedAt: new Date().toISOString(), updatedBy: actor.uid }) }, current.__updateTime as string | undefined); return response({ ok: true }, 201, cors(request, env));
 }
 async function updateSelectionRecord(request: Request, env: Env, actor: Profile, id: string) {
   const current = await candidate(env, id); requireSelectionUser(actor); if (!await candidateAllowedWithAssignment(env, actor, current)) throw new Error('FORBIDDEN'); const input = await request.json<{ kind?: unknown; value?: unknown }>(); if (!['INTERVIEW', 'TECHNICAL'].includes(String(input.kind)) || !isRecord(input.value)) throw new Error('INVALID_SELECTION_RECORD');
+  if (current.selectionActive === false) throw new CaptureError('Esta participación está cerrada.', 409);
+  if (current.selectionProcessSnapshot && input.kind === 'INTERVIEW') throw new CaptureError('Usa el formulario configurado en Gestión avanzada.', 409);
   const selection = isRecord(current.selection) ? current.selection : {}; const field = input.kind === 'INTERVIEW' ? 'interviewResult' : 'technicalVerification'; const rejected = input.kind === 'INTERVIEW' ? input.value.status === 'NO_APTO' : input.value.status === 'NO_APRUEBA'; const now = new Date().toISOString(); const traceability = Array.isArray(selection.traceability) ? selection.traceability : []; const newStage = rejected ? 'DESCARTADO' : input.kind === 'INTERVIEW' ? 'ENTREVISTA' : 'VERIFICACION_TECNICA';
   const trace = { id: `TR-${crypto.randomUUID()}`, date: now.slice(0, 10), time: now.slice(11, 16), user: actor.displayName, previousStage: selection.stage, newStage, observation: `${input.kind === 'INTERVIEW' ? 'Entrevista' : 'Verificación técnica'} registrada: ${String(input.value.status ?? '')}.` };
-  await firestore(env, `candidates/${id}`, 'PATCH', { fields: fields({ currentStage: rejected ? 'DESCARTADO' : current.currentStage, selection: { ...selection, [field]: input.value, status: rejected ? 'NO_APTO' : 'ACTIVO', traceability: [...traceability, trace] }, updatedAt: now, updatedBy: actor.uid }) }); return response({ ok: true }, 200, cors(request, env));
+  await firestore(env, `candidates/${id}`, 'PATCH', { fields: fields({ currentStage: rejected ? 'DESCARTADO' : current.currentStage, selection: { ...selection, [field]: input.value, status: rejected ? 'NO_APTO' : 'ACTIVO', traceability: [...traceability, trace] }, updatedAt: now, updatedBy: actor.uid }) }, current.__updateTime as string | undefined); return response({ ok: true }, 200, cors(request, env));
 }
 async function updateCandidatePersonalData(request: Request, env: Env, actor: Profile, id: string) {
-  const current = await requireDocumentAccess(env, actor, id); const input = await request.json<Record<string, unknown>>(); const allowed = ['dni', 'fullName', 'firstName', 'lastName', 'email', 'phone', 'birthDate', 'age', 'city', 'district', 'address']; const patch: Record<string, unknown> = {};
+  let current: Record<string,unknown>;
+  if(['ADMIN','JEFE_SELECCION','ANALISTA_SELECCION','RECLUTADOR'].includes(actor.role)) {
+    requireSelectionUser(actor);current=await candidate(env,id);
+    if(!await candidateAllowedWithAssignment(env,actor,current))throw new Error('FORBIDDEN');
+  } else current=await requireDocumentAccess(env,actor,id);
+  const input = await request.json<Record<string, unknown>>(); const allowed = ['dni', 'fullName', 'firstName', 'lastName', 'email', 'phone', 'birthDate', 'age', 'city', 'district', 'address']; const patch: Record<string, unknown> = {};
   for (const field of allowed) if (input[field] !== undefined) patch[field] = input[field];
   if (!Object.keys(patch).length) throw new Error('INVALID_PERSONAL_DATA'); const newDni = typeof patch.dni === 'string' ? patch.dni.replace(/\D/g, '') : ''; if (newDni && newDni !== String(current.dni ?? '').replace(/\D/g, '')) { try { await candidate(env, `CAN-${newDni}`); throw new Error('DUPLICATE_CANDIDATE'); } catch (error) { if (!(error instanceof Error) || error.message !== 'FIRESTORE_404') throw error; } }
   const selection = isRecord(current.selection) ? current.selection : {}; const traceability = Array.isArray(selection.traceability) ? selection.traceability : []; const now = new Date().toISOString(); const trace = { id: `TR-${crypto.randomUUID()}`, date: now.slice(0, 10), time: now.slice(11, 16), user: actor.displayName, action: 'EDICION', previousStage: current.currentStage, newStage: current.currentStage, observation: 'Datos personales del expediente actualizados.' };
   await firestore(env, `candidates/${id}`, 'PATCH', { fields: fields({ ...patch, selection: { ...selection, traceability: [...traceability, trace] }, updatedAt: now, updatedBy: actor.uid }) }); return response({ ok: true }, 200, cors(request, env));
 }
 async function createTrainingFromSelection(request: Request, env: Env, actor: Profile) {
-  requireSelectionManager(actor); const input = await request.json<Record<string, unknown>>(); const campaignId = typeof input.campaignId === 'string' ? input.campaignId : ''; const participantIds = Array.isArray(input.candidateIds) ? input.candidateIds.filter((id): id is string => typeof id === 'string') : [];
-  if (!campaignId || participantIds.length === 0 || typeof input.startDate !== 'string' || typeof input.modality !== 'string') throw new Error('INVALID_TRAINING');
-  const campaignData = await campaign(env, campaignId); if (!campaignAllowed(actor, campaignData)) throw new Error('FORBIDDEN');
+  const formationManager=['JEFE_FORMACION','COORDINADOR_FORMACION'].includes(actor.role);
+  if(formationManager)requireFormationManager(actor);else requireSelectionManager(actor);
+  const input = await request.json<Record<string, unknown>>(); const campaignId = typeof input.campaignId === 'string' ? input.campaignId : ''; const participantIds = Array.isArray(input.candidateIds) ? input.candidateIds.filter((id): id is string => typeof id === 'string') : [];
+  const uniqueParticipantIds = [...new Set(participantIds)];
+  if (!campaignId || uniqueParticipantIds.length === 0 || typeof input.startDate !== 'string' || typeof input.modality !== 'string') throw new Error('INVALID_TRAINING');
+  const campaignData = await campaign(env, campaignId);
+  if(formationManager ? campaignData.companyId!==actor.companyId||(actor.role==='COORDINADOR_FORMACION'&&!actor.scope.includes(campaignId)) : !campaignAllowed(actor,campaignData))throw new Error('FORBIDDEN');
   const participants: Record<string, unknown>[] = [];
-  for (const id of participantIds) {
-    const candidateData = await candidate(env, id); if (!candidateAllowed(actor, candidateData) || candidateData.campaignId !== campaignId) throw new Error('FORBIDDEN'); const selection = isRecord(candidateData.selection) ? candidateData.selection : {};
-    if (selection.stage !== 'APTO_CAPACITACION') throw new Error('CANDIDATE_NOT_READY_FOR_TRAINING'); participants.push(candidateData);
+  for (const id of uniqueParticipantIds) {
+    const candidateData = await candidate(env, id); if ((formationManager?candidateData.companyId!==actor.companyId:!candidateAllowed(actor, candidateData)) || candidateData.campaignId !== campaignId) throw new Error('FORBIDDEN'); const selection = isRecord(candidateData.selection) ? candidateData.selection : {};
+    if (selection.stage !== 'APTO_CAPACITACION' || candidateData.trainingId) throw new Error('CANDIDATE_NOT_READY_FOR_TRAINING'); participants.push(candidateData);
   }
-  const id = `TRN-${crypto.randomUUID()}`; const createdAt = new Date().toISOString(); const training = { ...input, id, campaignId, companyId: actor.companyId, participantIds, status: 'PENDIENTE_ASIGNACION', createdAt, createdBy: actor.uid };
+  if(input.maxCapacity!==undefined&&(numberValue(input.maxCapacity)<=0||numberValue(input.maxCapacity)<uniqueParticipantIds.length))throw new Error('INVALID_CAPACITY');
+  const trainingFields = ['name', 'code', 'startDate', 'endDate', 'schedule', 'modality', 'location', 'roomOrLink', 'ojtStartDate', 'ojtEndDate', 'observations', 'passingMinGrade', 'totalDays', 'maxCapacity', 'ojtTotalDays', 'evaluationsConfig'];
+  const safeTrainingInput: Record<string, unknown> = {};
+  for (const field of trainingFields) if (input[field] !== undefined) safeTrainingInput[field] = input[field];
+  const id = `TRN-${crypto.randomUUID()}`; const createdAt = new Date().toISOString(); const training = { ...safeTrainingInput, id, campaignId, companyId: actor.companyId, participantIds: uniqueParticipantIds, status: 'PENDIENTE_ASIGNACION', createdAt, createdBy: actor.uid };
   await firestore(env, `trainings/${id}`, 'PATCH', { fields: fields(training) });
   for (const candidateData of participants) {
     const selection = isRecord(candidateData.selection) ? candidateData.selection : {}; const history = Array.isArray(selection.traceability) ? selection.traceability : [];
@@ -310,6 +370,7 @@ async function assignTrainingTrainer(request: Request, env: Env, actor: Profile,
   const now = new Date().toISOString();
   const previousTrainerId = String(training.trainerId ?? '');
   const trainerName = String(trainer.displayName ?? trainer.name ?? trainer.username ?? 'Formador');
+  if (previousTrainerId === trainerId) return response({ ok: true, alreadyAssigned: true, training }, 200, cors(request, env));
   const nextStatus = training.status === 'PENDIENTE_ASIGNACION' ? 'PROGRAMADA' : training.status;
   const history = Array.isArray(training.managementHistory) ? training.managementHistory : [];
   const assignment = { id: `TR-${crypto.randomUUID()}`, action: previousTrainerId ? 'REASIGNACION_FORMADOR' : 'ASIGNACION_FORMADOR', previousTrainerId, trainerId, trainerName, notes: typeof input.notes === 'string' ? input.notes.trim() : '', at: now, by: actor.uid, byName: actor.displayName };
@@ -408,6 +469,7 @@ async function requestAttendanceUnlock(request: Request, env: Env, actor: Profil
   const window = await attendanceWindow(env, trainingId, training, date);
   if (window.state === 'OPEN' || window.state === 'UPCOMING') throw new Error('ATTENDANCE_WINDOW_NOT_LOCKED');
   const now = new Date().toISOString(); const id = attendanceUnlockId(trainingId, date);
+  if (window.unlock?.status === 'PENDIENTE' || window.unlock?.status === 'APROBADA') throw new Error('ATTENDANCE_UNLOCK_ALREADY_REQUESTED');
   const record = { id, trainingId, date, companyId: actor.companyId, campaignId: training.campaignId, trainerId: actor.uid, trainerName: actor.displayName, reason, status: 'PENDIENTE', requestedAt: now, requestedBy: actor.uid, audit: [{ action: 'SOLICITADA', at: now, by: actor.uid, byName: actor.displayName, reason }] };
   await firestore(env, `attendanceUnlockRequests/${id}`, 'PATCH', { fields: fields(record) });
   await writeAdminAudit(env, actor, 'ATTENDANCE_UNLOCK_REQUESTED', id, null, { trainingId, date, reason });
@@ -451,7 +513,9 @@ async function syncCandidateTraining(env: Env, candidateId: string, participant:
 async function appendParticipantHistory(request: Request, env: Env, actor: Profile, trainingId: string, candidateId: string, kind: 'attendance' | 'evaluations' | 'status') {
   const training = await requireTrainingAccess(env, actor, trainingId); const participant = await trainingParticipant(env, trainingId, candidateId); const input = await request.json<Record<string, unknown>>(); const now = new Date().toISOString();
   if (kind === 'status') {
-    const status = input.status; if (typeof status !== 'string' || !['PENDIENTE_INICIO', 'EN_CAPACITACION', 'NO_APTO', 'DESERTO', 'NSP', 'REPROGRAMADO', 'REASIGNADO'].includes(status)) throw new Error('INVALID_PARTICIPANT_STATUS');
+    const status = input.status;
+    const transitions: Record<string, string[]> = { PENDIENTE_INICIO: ['EN_CAPACITACION', 'REPROGRAMADO'], EN_CAPACITACION: ['NO_APTO', 'REPROGRAMADO'], REPROGRAMADO: ['PENDIENTE_INICIO', 'EN_CAPACITACION'] };
+    if (typeof status !== 'string' || !transitions[String(participant.status ?? 'PENDIENTE_INICIO')]?.includes(status)) throw new Error('INVALID_PARTICIPANT_STATUS');
     const traceability = Array.isArray(participant.traceability) ? participant.traceability : []; const item = { date: now, userId: actor.uid, userName: actor.displayName, status, reason: typeof input.reason === 'string' ? input.reason : '' };
     const next = { ...participant, candidateId, status, traceability: [...traceability, item], updatedAt: now };
     await firestore(env, `trainings/${trainingId}/participants/${candidateId}`, 'PATCH', { fields: fields(next) });
@@ -459,7 +523,7 @@ async function appendParticipantHistory(request: Request, env: Env, actor: Profi
   } else {
     const field = kind; const history = Array.isArray(participant[field]) ? participant[field] : []; const entry = { ...input, id: `${kind}-${crypto.randomUUID()}`, candidateId, recordedAt: now, trainerId: actor.uid, trainerName: actor.displayName };
     if (kind === 'attendance' && (typeof input.date !== 'string' || !['PRESENTE', 'TARDANZA', 'FALTA', 'JUSTIFICADO', 'NSP', 'FALTA_JUSTIFICADA', 'FALTA_INJUSTIFICADA'].includes(String(input.attendance ?? input.status)))) throw new Error('INVALID_ATTENDANCE');
-    if (kind === 'evaluations') { const score = numberValue(input.score, -1); const maxScore = numberValue(input.maxScore, -1); if (!String(input.name ?? input.moduleName ?? '').trim() || score < 0 || maxScore <= 0 || score > maxScore || !['APROBADO', 'NO_APROBADO'].includes(String(input.result ?? ''))) throw new Error('INVALID_EVALUATION'); }
+    if (kind === 'evaluations') { const score = numberValue(input.score, -1); const maxScore = numberValue(input.maxScore, -1); const evaluationId = String(input.evaluationId ?? ''); if (!evaluationId || !String(input.name ?? input.moduleName ?? '').trim() || score < 0 || maxScore <= 0 || score > maxScore || !['APROBADO', 'NO_APROBADO'].includes(String(input.result ?? ''))) throw new Error('INVALID_EVALUATION'); if (history.some(item => isRecord(item) && String(item.evaluationId ?? '') === evaluationId)) throw new Error('EVALUATION_ALREADY_RECORDED'); }
     let nextHistory = [...history, entry];
     if (kind === 'attendance' && typeof input.date === 'string') {
       const window = await attendanceWindow(env, trainingId, training, input.date);
@@ -544,15 +608,21 @@ async function projectDocumentsToCandidate(env: Env, candidateId: string, docume
   await firestore(env, `candidates/${candidateId}`, 'PATCH', { fields: fields({ documentSummary: summary, selection: { ...selection, traceability: [...traceability, trace] }, updatedAt: now, updatedBy: actor.uid }) });
 }
 async function listCandidateDocumentsResponse(request: Request, env: Env, actor: Profile, candidateId: string) {
-  await requireDocumentAccess(env, actor, candidateId); const documents = await candidateDocuments(env, candidateId);
+  const candidateData=await candidate(env,candidateId);
+  const cvOnly=['JEFE_SELECCION','ANALISTA_SELECCION','RECLUTADOR'].includes(actor.role)||(actor.role==='ADMIN'&&!candidateData.trainingId);
+  if(cvOnly){requireSelectionUser(actor);if(!await candidateAllowedWithAssignment(env,actor,candidateData))throw new Error('FORBIDDEN');}else await requireDocumentAccess(env,actor,candidateId);
+  const documents=(await candidateDocuments(env,candidateId)).filter(d=>!cvOnly||d.type==='CV');
   const safeDocuments = documents.map(({ objectKey: _objectKey, ...document }) => ({ ...document, status: uiDocumentStatus(String(document.status) as DocumentStatus) }));
   return response(safeDocuments, 200, cors(request, env));
 }
 async function createCandidateDocument(request: Request, env: Env, actor: Profile, candidateId: string) {
-  const candidateData = await requireDocumentAccess(env, actor, candidateId);
   const form = await request.formData(); const fileValue = form.get('file'); const nameValue = form.get('name'); const typeValue = form.get('type');
+  let candidateData:Record<string,unknown>;
+  if(typeValue==='CV'&&['ADMIN','JEFE_SELECCION','ANALISTA_SELECCION','RECLUTADOR'].includes(actor.role)){
+    requireSelectionUser(actor);candidateData=await candidate(env,candidateId);if(!await candidateAllowedWithAssignment(env,actor,candidateData))throw new Error('FORBIDDEN');
+  }else candidateData=await requireDocumentAccess(env,actor,candidateId);
   if (!(fileValue instanceof File) || typeof nameValue !== 'string' || typeof typeValue !== 'string') throw new Error('INVALID_DOCUMENT');
-  const allowedMime = ['application/pdf', 'image/jpeg', 'image/png']; const maxBytes = Math.min(Number(env.MAX_UPLOAD_BYTES) || 10_485_760, 10_485_760);
+  const allowedMime = ['application/pdf', 'image/jpeg', 'image/png',...(typeValue==='CV'?['application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document']:[])]; const maxBytes = Math.min(Number(env.MAX_UPLOAD_BYTES) || 10_485_760, 10_485_760);
   if (!allowedMime.includes(fileValue.type) || fileValue.size <= 0 || fileValue.size > maxBytes) throw new Error('INVALID_DOCUMENT_FILE');
   const documentId = `DOC-${crypto.randomUUID()}`; const objectKey = `companies/${safeObjectPart(String(candidateData.companyId))}/candidates/${safeObjectPart(candidateId)}/documents/${documentId}-${safeObjectPart(fileValue.name)}`; const now = new Date().toISOString();
   await env.DOCUMENTS.put(objectKey, fileValue.stream(), { httpMetadata: { contentType: fileValue.type }, customMetadata: { candidateId, documentId } });
@@ -592,8 +662,9 @@ async function replaceCandidateDocument(request: Request, env: Env, actor: Profi
   return response({ ok: true, status: 'UPLOADED' }, 200, cors(request, env));
 }
 async function downloadCandidateDocument(request: Request, env: Env, actor: Profile, candidateId: string, documentId: string) {
-  await requireDocumentAccess(env, actor, candidateId);
+  const candidateData=await candidate(env,candidateId);
   const document = unpack((await firestore(env, `candidates/${candidateId}/documents/${documentId}`)).fields ?? {}); const objectKey = typeof document.objectKey === 'string' ? document.objectKey : '';
+  if(document.type==='CV'&&['ADMIN','JEFE_SELECCION','ANALISTA_SELECCION','RECLUTADOR'].includes(actor.role)){requireSelectionUser(actor);if(!await candidateAllowedWithAssignment(env,actor,candidateData))throw new Error('FORBIDDEN');}else await requireDocumentAccess(env,actor,candidateId);
   if (!objectKey) throw new Error('DOCUMENT_FILE_NOT_FOUND'); const object = await env.DOCUMENTS.get(objectKey); if (!object) throw new Error('DOCUMENT_FILE_NOT_FOUND');
   const headers = new Headers(cors(request, env)); object.writeHttpMetadata(headers); headers.set('content-disposition', `attachment; filename="${safeObjectPart(String(document.fileName ?? 'documento'))}"`); headers.set('cache-control', 'private, no-store');
   return new Response(object.body, { headers });
@@ -623,7 +694,7 @@ async function calculateEligibility(env: Env, actor: Profile, candidateId: strin
 async function eligibilityResponse(request: Request, env: Env, actor: Profile, candidateId: string) { return response(await calculateEligibility(env, actor, candidateId), 200, cors(request, env)); }
 async function giveCandidateAlta(request: Request, env: Env, actor: Profile, candidateId: string) {
   if (!['ADMIN', 'JEFE_FORMACION', 'COORDINADOR_FORMACION', 'FORMADOR'].includes(actor.role) || !actor.allowedModules.includes('FORMACION')) throw new Error('FORBIDDEN');
-  const { candidateData } = await candidateTrainingAccess(env, actor, candidateId); const eligibility = await calculateEligibility(env, actor, candidateId); if (!eligibility.eligible) return response({ message: 'CANDIDATE_NOT_ELIGIBLE', pending: eligibility.pending }, 409, cors(request, env));
+  const { candidateData } = await candidateTrainingAccess(env, actor, candidateId); if (candidateData.currentProcess === 'GESTION_TALENTO' || candidateData.currentStage === 'GESTION_TALENTO') return response({ ok: true, alreadyProcessed: true }, 200, cors(request, env)); const eligibility = await calculateEligibility(env, actor, candidateId); if (!eligibility.eligible) return response({ message: 'CANDIDATE_NOT_ELIGIBLE', pending: eligibility.pending }, 409, cors(request, env));
   const input = await request.json<{ notes?: unknown }>(); const now = new Date().toISOString(); const selection = isRecord(candidateData.selection) ? candidateData.selection : {}; const traceability = Array.isArray(selection.traceability) ? selection.traceability : [];
   const trace = { id: `TR-${crypto.randomUUID()}`, date: now.slice(0, 10), time: now.slice(11, 16), user: actor.displayName, action: 'PASE_ETAPA', previousStage: candidateData.currentStage, newStage: 'GESTION_TALENTO', observation: 'Candidato enviado a Gestión de Talento, pendiente de contratación.', details: typeof input.notes === 'string' ? input.notes : '' };
   const hiring = isRecord(candidateData.hiring) ? candidateData.hiring : {};
@@ -669,6 +740,7 @@ async function signHiringContract(request: Request, env: Env, actor: Profile, ca
   await firestore(env, `candidates/${candidateId}`, 'PATCH', { fields: fields({ currentProcess: 'CONTRATADO', currentStage: 'CONTRATADO', hiring: { ...hiring, status: 'CONTRATADO', contractStatus: 'CONTRATADO', contractedAt: now, hiredDate: now.slice(0, 10), contract: { ...hiring.contract, signatureStatus: input.signatureType, signedDate: now.slice(0, 10) }, updatedAt: now, updatedBy: actor.uid }, selection: trace.selection, updatedAt: now, updatedBy: actor.uid }) }); return response({ ok: true, status: 'CONTRATADO' }, 200, cors(request, env));
 }
 async function identityAdmin(env: Env, action: 'create' | 'update' | 'delete' | 'lookup', body: Record<string, unknown>) {
+  if(env.DATA_PROVIDER!=='firebase') return relationalIdentity(env,action,body);
   const token = await googleAccessToken(env);
   const suffix = action === 'create' ? 'accounts' : `accounts:${action}`;
   const r = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(env.FIREBASE_PROJECT_ID)}/${suffix}`, {
@@ -679,6 +751,14 @@ async function identityAdmin(env: Env, action: 'create' | 'update' | 'delete' | 
   return data;
 }
 async function profileFor(request: Request, env: Env) {
+  if(env.DATA_PROVIDER!=='firebase') {
+    const verified=env.RELATIONAL_ACTOR||await relationalSession(request,env);
+    const data=await env.RELATIONAL_RUNTIME?.get('users/'+verified.id);
+    if(!data||data.uid!==verified.authUserId)throw new Error('PROFILE_NOT_FOUND');
+    if(data.enabled===false||data.status!=='ACTIVO')throw new Error('ACCOUNT_DISABLED');
+    if(data.mustChangePassword===true)throw new Error('PASSWORD_CHANGE_REQUIRED');
+    return {uid:verified.id,username:data.username,displayName:data.displayName,role:data.role,companyId:verified.companyId,module:data.module||[],allowedModules:data.allowedModules||[],scope:data.scope||[],subordinateUserIds:data.subordinateUserIds||[],enabled:true,status:'ACTIVO'} as Profile;
+  }
   const uid = await verifyToken(request, env);
   let doc: FirestoreDocument;
   try {
@@ -690,10 +770,40 @@ async function profileFor(request: Request, env: Env) {
   const values = unpack(doc.fields ?? {});
   const string = (key: string) => typeof values[key] === 'string' ? values[key] : '';
   const strings = (key: string) => Array.isArray(values[key]) ? values[key].filter((item): item is string => typeof item === 'string') : [];
-  const profile: Profile = { uid: string('uid') || uid, username: string('username'), displayName: string('displayName'), role: string('role') as Role, companyId: string('companyId'), module: strings('module'), allowedModules: strings('allowedModules'), scope: strings('scope'), enabled: values.enabled === true, status: string('status') };
+  const legacyModules = strings('module'); const configuredModules = strings('allowedModules');
+  const profile: Profile = { uid: string('uid') || uid, username: string('username'), displayName: string('displayName'), role: string('role') as Role, companyId: string('companyId'), module: legacyModules, allowedModules: configuredModules.length ? configuredModules : legacyModules, scope: strings('scope'), enabled: values.enabled !== false, status: string('status') || 'ACTIVO' };
+  profile.subordinateUserIds = strings('subordinateUserIds');
   if (profile.enabled === false || profile.status !== 'ACTIVO') throw new Error('ACCOUNT_DISABLED'); return profile;
 }
 function requireAdmin(profile: Profile) { if (profile.role !== 'ADMIN') throw new Error('FORBIDDEN'); }
+type SystemSettings = { companyName: string; minPassGrade: number; minAttendancePct: number; slaSelectionDays: number; ojtDurationDays: number };
+const defaultSystemSettings: SystemSettings = { companyName: '', minPassGrade: 80, minAttendancePct: 85, slaSelectionDays: 5, ojtDurationDays: 5 };
+const settingsPath = (actor: Profile) => `systemSettings/${safeObjectPart(actor.companyId || 'global')}`;
+async function getSystemSettings(request: Request, env: Env, actor: Profile) {
+  requireAdmin(actor);
+  try {
+    const stored = unpack((await firestore(env, settingsPath(actor))).fields ?? {});
+    return response({ ...defaultSystemSettings, ...stored }, 200, cors(request, env));
+  } catch (error) {
+    if (error instanceof Error && error.message === 'FIRESTORE_404') return response(defaultSystemSettings, 200, cors(request, env));
+    throw error;
+  }
+}
+async function updateSystemSettings(request: Request, env: Env, actor: Profile) {
+  requireAdmin(actor);
+  const input = await request.json<Record<string, unknown>>();
+  const settings: SystemSettings = {
+    companyName: typeof input.companyName === 'string' ? input.companyName.trim() : '',
+    minPassGrade: numberValue(input.minPassGrade, -1),
+    minAttendancePct: numberValue(input.minAttendancePct, -1),
+    slaSelectionDays: numberValue(input.slaSelectionDays, -1),
+    ojtDurationDays: numberValue(input.ojtDurationDays, -1),
+  };
+  if (!settings.companyName || settings.minPassGrade < 0 || settings.minPassGrade > 100 || settings.minAttendancePct < 0 || settings.minAttendancePct > 100 || settings.slaSelectionDays < 1 || settings.ojtDurationDays < 1) throw new Error('INVALID_SETTINGS');
+  await firestoreServerWrite(env, settingsPath(actor), { ...settings, companyId: actor.companyId, updatedBy: actor.uid }, ['updatedAt']);
+  await writeAdminAudit(env, actor, 'SYSTEM_SETTINGS_UPDATED', actor.companyId || 'global', null, settings, 'ADMINISTRACION', 'systemSettings');
+  return response(settings, 200, cors(request, env));
+}
 const validUsername = (name: unknown) => typeof name === 'string' && /^[a-z0-9][a-z0-9._-]{2,31}$/.test(name);
 const modulesByRole: Record<Role, string[]> = {
   ADMIN: ['SELECCION', 'FORMACION', 'TALENTO', 'ANALITICA', 'ADMINISTRACION'],
@@ -709,8 +819,32 @@ const modulesByRole: Record<Role, string[]> = {
 const normalizeUsername = (value: string) => value.trim().toLowerCase();
 const authEmailForUsername = (username: string) => `${username}@auth.talentcc.invalid`;
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+const profileText = (value: unknown, label: string, maxLength: number): string | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') throw new Error(`${label} inválido.`);
+  const normalized = value
+    .normalize('NFC')
+    .replace(/[\u0000-\u001F\u007F\uFFFD]/g, '')
+    .replace(/\^+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (normalized.length > maxLength) throw new Error(`${label} excede el límite permitido.`);
+  return normalized;
+};
+const profileAvatar = (value: unknown): string | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') throw new Error('La foto de perfil no es válida.');
+  const avatar = value.trim();
+  if (!avatar) return '';
+  if (avatar.length > 200_000) throw new Error('La foto de perfil es demasiado grande.');
+  const remoteImage = /^https:\/\/[^\s]+$/i.test(avatar);
+  const embeddedImage = /^data:image\/(?:jpeg|jpg|png|webp);base64,[a-z0-9+/=\s]+$/i.test(avatar);
+  if (!remoteImage && !embeddedImage) throw new Error('La foto de perfil no es válida.');
+  return avatar;
+};
 
 async function userIdsByUsername(env: Env, username: string): Promise<string[]> {
+  if(env.DATA_PROVIDER!=='firebase') return (await env.RELATIONAL_RUNTIME!.query('users',{username})).map(u=>u.id);
   const token = await googleAccessToken(env);
   const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(env.FIREBASE_PROJECT_ID)}/databases/(default)/documents:runQuery`;
   const result = await fetch(url, {
@@ -764,6 +898,9 @@ async function createUser(request: Request, env: Env, actor: Profile) {
   const selectedModules = strings(input.module);
   const modules = selectedModules.length ? selectedModules : modulesByRole[role];
   const scope = strings(input.scope);
+  const nickname = profileText(input.nickname, 'El apodo', 48) ?? '';
+  const tagline = profileText(input.tagline, 'La frase de perfil', 120) ?? '';
+  const avatarUrl = profileAvatar(input.avatarUrl) ?? '';
   const resolvedCompanyId = typeof input.companyId === 'string' && input.companyId ? input.companyId : actor.companyId || 'default';
   await identityAdmin(env, 'update', { localId: uid, displayName, disabled: status === 'INACTIVO' });
   try {
@@ -772,6 +909,8 @@ async function createUser(request: Request, env: Env, actor: Profile) {
       username,
       displayName,
       name: displayName,
+      nickname,
+      tagline,
       phone: typeof input.phone === 'string' ? input.phone : '',
       jobTitle: typeof input.jobTitle === 'string' ? input.jobTitle : '',
       role,
@@ -781,7 +920,7 @@ async function createUser(request: Request, env: Env, actor: Profile) {
       scope,
       scopeCampaignIds: scope,
       subordinateUserIds: strings(input.subordinateUserIds),
-      avatarUrl: typeof input.avatarUrl === 'string' ? input.avatarUrl : '',
+      avatarUrl,
       enabled: status === 'ACTIVO',
       status,
     }, ['updatedAt', 'createdAt']);
@@ -804,6 +943,10 @@ async function updateUser(request: Request, env: Env, actor: Profile, uid: strin
   const role = typeof input.role === 'string' ? input.role as Role : undefined;
   const status = input.status === undefined ? 'ACTIVO' : input.status;
   if (!uid || !role || !modulesByRole[role] || !['ACTIVO', 'INACTIVO'].includes(String(status))) throw new Error('Actualización de usuario inválida.');
+  if(env.DATA_PROVIDER!=='firebase'&&existing.role==='ADMIN'&&(role!=='ADMIN'||status!=='ACTIVO')){
+    const peers=await env.RELATIONAL_RUNTIME!.query('users',{role:'ADMIN',status:'ACTIVO'});
+    if(!peers.some(p=>p.id!==uid&&p.enabled!==false))throw new Error('LAST_ADMIN_REQUIRED');
+  }
   const rawUsername = typeof input.username === 'string' ? input.username : undefined;
   const username = rawUsername ? normalizeUsername(rawUsername) : String(existing.username ?? '');
   if (rawUsername) {
@@ -815,6 +958,9 @@ async function updateUser(request: Request, env: Env, actor: Profile, uid: strin
   const modules = selectedModules.length ? selectedModules : modulesByRole[role];
   const scope = strings(input.scope);
   const displayName = typeof input.displayName === 'string' ? input.displayName : undefined;
+  const nickname = profileText(input.nickname, 'El apodo', 48);
+  const tagline = profileText(input.tagline, 'La frase de perfil', 120);
+  const avatarUrl = profileAvatar(input.avatarUrl);
   const resolvedCompanyId = typeof input.companyId === 'string' && input.companyId ? input.companyId : actor.companyId || String(existing.companyId ?? '') || 'default';
   await identityAdmin(env, 'update', {
     localId: uid,
@@ -825,6 +971,8 @@ async function updateUser(request: Request, env: Env, actor: Profile, uid: strin
   await firestoreServerWrite(env, `users/${uid}`, {
     ...(rawUsername ? { username } : {}),
     ...(displayName ? { displayName, name: displayName } : {}),
+    ...(nickname !== undefined ? { nickname } : {}),
+    ...(tagline !== undefined ? { tagline } : {}),
     phone: typeof input.phone === 'string' ? input.phone : '',
     jobTitle: typeof input.jobTitle === 'string' ? input.jobTitle : '',
     role,
@@ -833,7 +981,7 @@ async function updateUser(request: Request, env: Env, actor: Profile, uid: strin
     scope,
     scopeCampaignIds: scope,
     subordinateUserIds: strings(input.subordinateUserIds),
-    avatarUrl: typeof input.avatarUrl === 'string' ? input.avatarUrl : '',
+    ...(avatarUrl !== undefined ? { avatarUrl } : {}),
     companyId: resolvedCompanyId,
     enabled: status === 'ACTIVO',
     status,
@@ -849,13 +997,35 @@ async function resetPassword(request: Request, env: Env, actor: Profile, uid: st
   return response({ ok: true }, 200, cors(request, env));
 }
 
-export default { async fetch(request: Request, env: Env): Promise<Response> {
+async function handleRequest(request: Request, env: Env): Promise<Response> {
   const preflight = corsResponse(request, env); if (preflight) return preflight;
   const headers = cors(request, env);
   try {
     if (!originAllowed(request, env)) throw new Error('ORIGIN_NOT_ALLOWED');
-    const url = new URL(request.url); if (url.pathname === '/health') return response({ ok: true, spark: true }, 200, headers);
+    const url = new URL(request.url); if (url.pathname === '/health') return response({ ok: true, provider: env.DATA_PROVIDER === 'firebase' ? 'firebase' : 'supabase', modulesReady: true }, 200, headers);
+    if (url.pathname.startsWith('/api/public/capture/')) {
+      const result = await handleCapture(request, env, undefined, { token: googleAccessToken, encode: fields, decode: unpack });
+      if (result) { Object.entries(headers).forEach(([k, v]) => result.headers.set(k, v)); return result; }
+    }
+    if (url.pathname === '/api/session' && request.method === 'GET') {
+      return response(await relationalSession(request, env, true), 200, headers);
+    }
+    if (url.pathname === '/api/session/password' && request.method === 'POST') {
+      await changeFirstPassword(request, env);
+      return response({ ok: true }, 200, headers);
+    }
     const actor = await profileFor(request, env);
+    if (url.pathname==='/api/bootstrap'&&request.method==='GET') return await relationalBootstrap(request,env,actor);
+    if (url.pathname.startsWith('/api/selection/')) {
+      const result = await handleSelectionAdvanced(request, env, actor, { token: googleAccessToken, encode: fields, decode: unpack });
+      Object.entries(headers).forEach(([k, v]) => result.headers.set(k, v)); return result;
+    }
+    if (url.pathname.startsWith('/api/capture')) {
+      const result = await handleCapture(request, env, actor, { token: googleAccessToken, encode: fields, decode: unpack });
+      if (result) { Object.entries(headers).forEach(([k, v]) => result.headers.set(k, v)); return result; }
+    }
+    if (request.method === 'GET' && url.pathname === '/api/settings') return await getSystemSettings(request, env, actor);
+    if (request.method === 'PATCH' && url.pathname === '/api/settings') return await updateSystemSettings(request, env, actor);
     if (request.method === 'GET' && url.pathname === '/api/users/assignable') return await listAssignableUsers(request, env, actor);
     if (request.method === 'POST' && url.pathname === '/api/users') return await createUser(request, env, actor);
     const userAccessMatch = url.pathname.match(/^\/api\/users\/([^/]+)\/access$/);
@@ -865,6 +1035,16 @@ export default { async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === 'POST' && url.pathname === '/api/campaigns') return await createCampaign(request, env, actor);
     if (request.method === 'POST' && url.pathname === '/api/candidates') return await createCandidate(request, env, actor);
     if (request.method === 'POST' && url.pathname === '/api/trainings/from-selection') return await createTrainingFromSelection(request, env, actor);
+    const bulkAttendance=url.pathname.match(/^\/api\/trainings\/([^/]+)\/attendance\/bulk$/);
+    if(bulkAttendance&&request.method==='POST'){
+      const trainingId=decodeURIComponent(bulkAttendance[1]);await requireTrainingAccess(env,actor,trainingId);
+      const input=await request.json<Record<string,unknown>>();
+      if(!Array.isArray(input.candidateIds)||input.candidateIds.length<1||input.candidateIds.length>100||input.candidateIds.some(id=>typeof id!=='string'))throw new Error('INVALID_ATTENDANCE_BATCH');
+      for(const id of Array.from(new Set(input.candidateIds as string[]))){
+        await appendParticipantHistory(new Request(request.url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...input,candidateIds:undefined})}),env,actor,trainingId,id,'attendance');
+      }
+      return response({ok:true},201,headers);
+    }
     const trainerMatch = url.pathname.match(/^\/api\/trainings\/([^/]+)\/trainer$/);
     if (request.method === 'GET' && trainerMatch) return await availableTrainingTrainers(request, env, actor, decodeURIComponent(trainerMatch[1]));
     if (request.method === 'POST' && trainerMatch) return await assignTrainingTrainer(request, env, actor, decodeURIComponent(trainerMatch[1]));
@@ -933,13 +1113,63 @@ export default { async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === 'POST' && campaignSourcesMatch) return await updateCampaignSource(request, env, actor, campaignSourcesMatch[1]);
     throw new Error('NOT_FOUND');
   } catch (error) {
+    if(env.DATA_PROVIDER!=='firebase'&&error instanceof Error&&error.message==='FIRESTORE_404')return response({message:'NOT_FOUND'},404,headers);
+    if (error instanceof SupabaseError) return response({ message: error.code }, error.status, headers);
+    if (error instanceof CaptureError) return response({ message: error.message }, error.status, headers);
     const message = error instanceof Error ? error.message : 'INTERNAL_ERROR';
     const status = ['UNAUTHENTICATED', 'INVALID_TOKEN'].includes(message) ? 401
       : ['FORBIDDEN', 'ACCOUNT_DISABLED', 'PROFILE_NOT_FOUND', 'ORIGIN_NOT_ALLOWED'].includes(message) ? 403
         : ['NOT_FOUND', 'Usuario no encontrado.'].includes(message) ? 404
-          : message === 'El nombre de usuario ya está en uso.' ? 409
+          : message === 'El nombre de usuario ya está en uso.' || ['DUPLICATE_CANDIDATE', 'EVALUATION_ALREADY_RECORDED', 'OJT_DAY_ALREADY_RECORDED', 'ATTENDANCE_UNLOCK_ALREADY_REQUESTED'].includes(message) ? 409
             : message.startsWith('GOOGLE_AUTH_') || message.startsWith('IDENTITY_') || message.startsWith('FIRESTORE_') ? 502
               : 400;
     return response({ message }, status, headers);
   }
-} } satisfies ExportedHandler<Env>;
+}
+
+async function relationalBootstrap(request:Request,env:Env,actor:Profile) {
+  if(!env.RELATIONAL_RUNTIME)throw new Error('RELATIONAL_CONTEXT_MISSING');
+  const selection=actor.role==='ADMIN'||actor.allowedModules.includes('SELECCION')&&['JEFE_SELECCION','ANALISTA_SELECCION','RECLUTADOR'].includes(actor.role);
+  const formation=actor.role==='ADMIN'||actor.allowedModules.includes('FORMACION')&&['JEFE_FORMACION','COORDINADOR_FORMACION','FORMADOR'].includes(actor.role);
+  const talent=actor.role==='ADMIN'||actor.allowedModules.includes('TALENTO')&&['JEFE_TALENTO','ANALISTA_TALENTO'].includes(actor.role);
+  const cohorts=(await listFirestore(env,'trainings')).filter(t=>formation&&(actor.role==='ADMIN'||actor.role==='JEFE_FORMACION'||actor.role==='COORDINADOR_FORMACION'&&(t.coordinatorId===actor.uid||actor.scope.includes(String(t.campaignId)))||actor.role==='FORMADOR'&&t.trainerId===actor.uid)||selection&&actor.role==='JEFE_SELECCION');
+  const campaigns=(await listFirestore(env,'campaigns')).filter(c=>selection&&campaignAllowed(actor,c)||formation&&(actor.role==='JEFE_FORMACION'||actor.role==='COORDINADOR_FORMACION'&&actor.scope.includes(String(c.id))||actor.role==='FORMADOR'&&cohorts.some(t=>t.campaignId===c.id))||talent&&(actor.role==='JEFE_TALENTO'||actor.scope.includes(String(c.id))||actor.scope.includes(actor.companyId)));
+  const candidates=[] as Record<string,unknown>[];
+  for(const c of await listFirestore(env,'candidates')){
+    if(c.captureOnly===true)continue;
+    if(selection&&(actor.role==='ADMIN'||actor.role==='JEFE_SELECCION'||actor.role==='ANALISTA_SELECCION'&&(c.analystId===actor.uid||actor.scope.includes(String(c.campaignId)))||actor.role==='RECLUTADOR'&&(c.recruiterId===actor.uid||campaigns.some(cmp=>cmp.id===c.campaignId)))||formation&&(actor.role==='ADMIN'||actor.role==='JEFE_FORMACION'||cohorts.some(t=>t.id===c.trainingId))||talent&&(actor.role==='ADMIN'||actor.role==='JEFE_TALENTO'||actor.scope.includes(String(c.campaignId))||actor.scope.includes(actor.companyId)))candidates.push(c);
+  }
+  const rawUsers=await listFirestore(env,'users');
+  const users=(actor.role==='ADMIN'?rawUsers:rawUsers.filter(u=>u.id===actor.uid||actor.subordinateUserIds?.includes(String(u.id)))).map(u=>({id:u.id,companyId:u.companyId,email:u.username,name:u.displayName,role:u.role,status:u.status,avatarUrl:u.avatarUrl||'',nickname:u.nickname,tagline:u.tagline,phone:u.phone,jobTitle:u.jobTitle,allowedModules:u.allowedModules,scopeCampaignIds:u.scope,subordinateUserIds:u.subordinateUserIds}));
+  return response({campaigns,cohorts,candidates,users},200,cors(request,env));
+}
+
+export default {async fetch(request:Request,env:Env):Promise<Response>{
+  const path=new URL(request.url).pathname;
+  if(env.DATA_PROVIDER==='firebase'||request.method==='OPTIONS'||path==='/health'||path==='/api/session'||path==='/api/session/password')return handleRequest(request,env);
+  const headers=cors(request,env);let store:RelationalRuntime|undefined;let scoped:Env|undefined;
+  const newObjects=new Set<string>();
+  const objectStore=env.DOCUMENTS?new Proxy(env.DOCUMENTS,{get(target,key){
+    if(key==='put')return async(k:string,v:any,options:any)=>{const result=await target.put(k,v,options);newObjects.add(k);return result;};
+    if(key==='delete')return async(k:string)=>{if(newObjects.has(k)){await target.delete(k);newObjects.delete(k);} }; // conservar versiones anteriores.
+    const value=(target as any)[key];return typeof value==='function'?value.bind(target):value;
+  }}):env.DOCUMENTS;
+  const cleanup=async()=>{for(const key of newObjects)await env.DOCUMENTS.delete(key).catch(()=>{});};
+  try{
+    if(!originAllowed(request,env))throw new Error('ORIGIN_NOT_ALLOWED');
+    const token=path.match(/^\/api\/public\/capture\/([a-f0-9]{48})$/)?.[1];
+    const actor=token?undefined:await relationalSession(request,env);
+    store=await new RelationalRuntime(env,actor?.authUserId||null,token).load();
+    scoped={...env,DOCUMENTS:objectStore,RELATIONAL_ACTOR:actor,RELATIONAL_RUNTIME:store};
+    const result=await handleRequest(request,scoped);
+    if(result.ok)await store.commit();
+    else {await cleanup();for(const uid of store.newAuthIds)await relationalIdentity(scoped,'delete',{localId:uid}).catch(()=>{});}
+    return result;
+  }catch(error){
+    await cleanup();
+    if(store&&scoped)for(const uid of store.newAuthIds)await relationalIdentity(scoped,'delete',{localId:uid}).catch(()=>{});
+    const code=error instanceof SupabaseError?error.code:error instanceof Error?error.message:'INTERNAL_ERROR';
+    const status=error instanceof SupabaseError?error.status:code==='ORIGIN_NOT_ALLOWED'?403:500;
+    return response({message:code},status,headers);
+  }
+}};

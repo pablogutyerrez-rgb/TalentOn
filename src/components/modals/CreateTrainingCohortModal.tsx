@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useTalent } from '../../context/TalentContext';
 import { CampaignCall, CandidateRecord } from '../../types';
+import { getWorkerErrorMessage } from '../../services/workerApi';
 
 interface CreateTrainingCohortModalProps {
   isOpen: boolean;
@@ -192,7 +193,7 @@ export const CreateTrainingCohortModal: React.FC<CreateTrainingCohortModalProps>
       setActiveModule('FORMACION_CAPACITACIONES');
       setSelectedCohortId(createdCohort.id);
     } catch (error: unknown) {
-      setErrorMsg(`Ocurrió un error al crear la capacitación: ${error instanceof Error ? error.message : 'TRAINING_CREATE_FAILED'}`);
+      setErrorMsg(getWorkerErrorMessage(error, 'No se pudo crear la capacitación. Revisa los datos e inténtalo nuevamente.'));
     } finally {
       setIsSubmitting(false);
     }

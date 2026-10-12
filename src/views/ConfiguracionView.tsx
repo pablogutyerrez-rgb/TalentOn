@@ -1,35 +1,53 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Settings, 
-  Sliders, 
   ShieldCheck, 
   FileText, 
   Check, 
-  Plus, 
-  Trash2, 
-  Layers,
   Building,
-  Bell,
-  Sparkles,
-  Users,
   ArrowRight
 } from 'lucide-react';
 import { DROPOUT_REASONS, DISCARD_REASONS, DOCUMENT_TYPES } from '../config/catalogs';
 import { useTalent } from '../context/TalentContext';
 
 export const ConfiguracionView: React.FC = () => {
-  const { setActiveModule, currentUser } = useTalent();
+  const { setActiveModule, getSystemSettings, updateSystemSettings } = useTalent();
   const [savedSuccess, setSavedSuccess] = useState(false);
-  const [companyName, setCompanyName] = useState('Nexus BPO & Contact Center S.A.C.');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [companyName, setCompanyName] = useState('');
   const [minPassGrade, setMinPassGrade] = useState(80);
   const [minAttendancePct, setMinAttendancePct] = useState(85);
   const [slaSelectionDays, setSlaSelectionDays] = useState(5);
   const [ojtDurationDays, setOjtDurationDays] = useState(5);
 
-  const handleSave = (e: React.FormEvent) => {
+  useEffect(() => {
+    let active = true;
+    void getSystemSettings()
+      .then(settings => {
+        if (!active) return;
+        setCompanyName(settings.companyName);
+        setMinPassGrade(settings.minPassGrade);
+        setMinAttendancePct(settings.minAttendancePct);
+        setSlaSelectionDays(settings.slaSelectionDays);
+        setOjtDurationDays(settings.ojtDurationDays);
+      })
+      .catch(() => active && setError('No se pudo cargar la configuración.'))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, []);
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
+    setSaving(true); setError(''); setSavedSuccess(false);
+    try {
+      await updateSystemSettings({ companyName, minPassGrade, minAttendancePct, slaSelectionDays, ojtDurationDays });
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3000);
+    } catch {
+      setError('No se pudo guardar la configuración. Verifica los valores e inténtalo nuevamente.');
+    } finally { setSaving(false); }
   };
 
   return (
@@ -53,6 +71,7 @@ export const ConfiguracionView: React.FC = () => {
             <span>Configuración guardada correctamente</span>
           </div>
         )}
+        {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700">{error}</div>}
       </div>
 
       {/* RBAC Users Direct Banner */}
@@ -191,9 +210,10 @@ export const ConfiguracionView: React.FC = () => {
         <div className="flex justify-end">
           <button
             type="submit"
-            className="px-6 py-2.5 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-xl shadow-md transition-colors cursor-pointer"
+            disabled={loading || saving}
+            className="px-6 py-2.5 text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white rounded-xl shadow-md transition-colors cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-400"
           >
-            Guardar Cambios de Configuración
+            {loading ? 'Cargando…' : saving ? 'Guardando…' : 'Guardar Cambios de Configuración'}
           </button>
         </div>
       </form>

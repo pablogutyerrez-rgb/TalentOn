@@ -1,18 +1,11 @@
 import React from 'react';
 import { 
   BarChart3, 
-  TrendingUp, 
-  Users, 
-  Clock, 
-  CheckCircle2, 
   AlertTriangle, 
-  GraduationCap, 
-  Headphones, 
-  Briefcase,
   Building,
-  Target
 } from 'lucide-react';
 import { useTalent } from '../context/TalentContext';
+import { DROPOUT_CATEGORIES } from '../config/catalogs';
 
 export const AnaliticaView: React.FC = () => {
   const { candidates, campaigns, cohorts } = useTalent();
@@ -25,6 +18,28 @@ export const AnaliticaView: React.FC = () => {
   const hired = candidates.filter(c => c.currentStage === 'CONTRATADO').length;
   const discarded = candidates.filter(c => c.currentStage === 'DESCARTADO').length;
   const dropouts = candidates.filter(c => c.currentStage === 'BAJA').length;
+  const selectionApproved = candidates.filter(c => c.selection?.stage === 'APTO_CAPACITACION' || ['FORMACION', 'GESTION_TALENTO', 'CONTRATADO'].includes(c.currentProcess || '') || ['CAPACITACION', 'OJT', 'APTO_ALTA', 'CONTRATADO'].includes(c.currentStage)).length;
+  const selectionRejected = candidates.filter(c => c.currentStage === 'DESCARTADO' || c.selection?.status === 'NO_APTO' || c.selection?.status === 'DESCARTADO').length;
+  const selectionDecided = selectionApproved + selectionRejected;
+  const selectionApprovalRate = selectionDecided ? (selectionApproved / selectionDecided) * 100 : 0;
+  const trainingPopulation = candidates.filter(c => c.trainingId || c.training?.cohortId || c.training?.startDate || ['CAPACITACION', 'OJT', 'APTO_ALTA', 'CONTRATADO', 'BAJA'].includes(c.currentStage));
+  const trainingDropouts = trainingPopulation.filter(c => c.currentStage === 'BAJA' || c.training?.status === 'DESERTO' || Boolean(c.training?.dropoutRecord));
+  const trainingRetention = trainingPopulation.length ? ((trainingPopulation.length - trainingDropouts.length) / trainingPopulation.length) * 100 : 0;
+  const floorDurations = candidates.flatMap(candidate => {
+    const start = candidate.applicationDate ? new Date(candidate.applicationDate).getTime() : NaN;
+    const floor = candidate.ojt?.startDate ? new Date(candidate.ojt.startDate).getTime() : NaN;
+    return Number.isFinite(start) && Number.isFinite(floor) && floor >= start ? [(floor - start) / 86_400_000] : [];
+  });
+  const timeToFloor = floorDurations.length ? floorDurations.reduce((sum, days) => sum + days, 0) / floorDurations.length : 0;
+  const sourceCount = new Set(candidates.map(candidate => candidate.source).filter(Boolean)).size;
+  const dropoutCauseCounts = trainingDropouts.reduce<Record<string, number>>((counts, candidate) => {
+    const category = candidate.training?.dropoutRecord?.category || 'OTRO';
+    counts[category] = (counts[category] || 0) + 1;
+    return counts;
+  }, {});
+  const dropoutCauses = DROPOUT_CATEGORIES.map(item => ({ ...item, count: dropoutCauseCounts[item.id] || 0 }))
+    .filter(item => item.count > 0)
+    .sort((a, b) => b.count - a.count);
 
   const funnelData = [
     { stage: '1. Selección', count: inSelection + inTraining + inOjt + readyHiring + hired + discarded, pct: 100, color: 'bg-sky-500' },
@@ -55,25 +70,25 @@ export const AnaliticaView: React.FC = () => {
         <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-1">
           <span className="text-[11px] font-semibold text-slate-500">Total Postulantes Registrados</span>
           <div className="text-2xl font-black text-slate-900">{total}</div>
-          <div className="text-[10px] text-slate-500">A través de 5 canales de atracción</div>
+          <div className="text-[10px] text-slate-500">A través de {sourceCount} {sourceCount === 1 ? 'canal' : 'canales'} de atracción</div>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-1">
           <span className="text-[11px] font-semibold text-slate-500">Tasa de Aprobación Selección</span>
-          <div className="text-2xl font-black text-sky-600">68.4%</div>
-          <div className="text-[10px] text-slate-500">Filtros psicotécnicos y roleplay</div>
+          <div className="text-2xl font-black text-sky-600">{selectionApprovalRate.toFixed(1)}%</div>
+          <div className="text-[10px] text-slate-500">{selectionApproved} aprobados de {selectionDecided} evaluados</div>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-1">
           <span className="text-[11px] font-semibold text-slate-500">Retención en Formación</span>
-          <div className="text-2xl font-black text-indigo-600">91.2%</div>
-          <div className="text-[10px] text-slate-500">Bajas controladas en aula</div>
+          <div className="text-2xl font-black text-indigo-600">{trainingRetention.toFixed(1)}%</div>
+          <div className="text-[10px] text-slate-500">{trainingDropouts.length} bajas de {trainingPopulation.length} participantes</div>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-1">
           <span className="text-[11px] font-semibold text-slate-500">Time-to-Floor Promedio</span>
-          <div className="text-2xl font-black text-emerald-600">14.2 días</div>
-          <div className="text-[10px] text-slate-500">De postulación a primera llamada real</div>
+          <div className="text-2xl font-black text-emerald-600">{timeToFloor.toFixed(1)} días</div>
+          <div className="text-[10px] text-slate-500">De postulación al inicio de OJT</div>
         </div>
       </div>
 
@@ -116,16 +131,11 @@ export const AnaliticaView: React.FC = () => {
             Principales Motivos de Deserción / Baja
           </h3>
           <div className="space-y-2 text-xs">
-            {[
-              { reason: 'Incompatibilidad de horarios de estudio', pct: 38 },
-              { reason: 'Otra oferta laboral más cercana a domicilio', pct: 26 },
-              { reason: 'Desaprobación en examen final de producto', pct: 18 },
-              { reason: 'No cumple estándar de calidad QA en OJT', pct: 12 },
-              { reason: 'Inasistencia reiterada injustificada', pct: 6 }
-            ].map((d, idx) => (
-              <div key={idx} className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
-                <span className="text-slate-700">{d.reason}</span>
-                <strong className="text-slate-900">{d.pct}%</strong>
+            {dropoutCauses.length === 0 && <div className="rounded-lg border border-dashed border-slate-200 p-5 text-center text-slate-500">Sin deserciones registradas.</div>}
+            {dropoutCauses.map((d) => (
+              <div key={d.id} className="flex justify-between items-center p-2 rounded-lg bg-slate-50 border border-slate-100">
+                <span className="text-slate-700">{d.label}</span>
+                <strong className="text-slate-900">{Math.round((d.count / trainingDropouts.length) * 100)}%</strong>
               </div>
             ))}
           </div>
@@ -139,12 +149,12 @@ export const AnaliticaView: React.FC = () => {
           </h3>
           <div className="space-y-3 text-xs">
             {campaigns.map(camp => {
-              const pct = Math.round((camp.hiredCount / camp.vacancies) * 100);
+              const pct = camp.vacancies > 0 ? Math.round(((camp.hiredCount || 0) / camp.vacancies) * 100) : 0;
               return (
                 <div key={camp.id} className="space-y-1">
                   <div className="flex justify-between">
                     <span className="font-semibold text-slate-800">{camp.title} ({camp.client})</span>
-                    <strong className="text-slate-900">{camp.hiredCount} / {camp.vacancies} ({pct}%)</strong>
+                    <strong className="text-slate-900">{camp.hiredCount || 0} / {camp.vacancies} ({pct}%)</strong>
                   </div>
                   <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                     <div 

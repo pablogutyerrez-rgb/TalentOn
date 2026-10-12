@@ -16,16 +16,16 @@ const base64url = (value: Uint8Array | string) => {
 
 const stringValue = (value: string) => ({ stringValue: value });
 const stringsValue = (value: string[]) => ({ arrayValue: { values: value.map(stringValue) } });
-const actorDocument = (role: string, scope: string[] = []) => ({ fields: {
+const actorDocument = (role: string, scope: string[] = [], legacy = false, enabled = true) => ({ fields: {
   uid: stringValue(actorUid),
   username: stringValue('admin'),
   displayName: stringValue('Administrador'),
   role: stringValue(role),
   companyId: stringValue('company-1'),
   module: stringsValue(role === 'ADMIN' ? ['ADMINISTRACION', 'FORMACION'] : role.includes('FORMACION') || role === 'FORMADOR' ? ['FORMACION'] : ['SELECCION']),
-  allowedModules: stringsValue(role === 'ADMIN' ? ['ADMINISTRACION', 'FORMACION'] : role.includes('FORMACION') || role === 'FORMADOR' ? ['FORMACION'] : ['SELECCION']),
+  ...(!legacy ? { allowedModules: stringsValue(role === 'ADMIN' ? ['ADMINISTRACION', 'FORMACION'] : role.includes('FORMACION') || role === 'FORMADOR' ? ['FORMACION'] : ['SELECCION']) } : {}),
   scope: stringsValue(scope),
-  enabled: { booleanValue: true },
+  ...(!legacy ? { enabled: { booleanValue: enabled } } : {}),
   status: stringValue('ACTIVO'),
 } });
 
@@ -38,6 +38,7 @@ async function tokenFor(uid = actorUid) {
 }
 
 const env = (): Env => ({
+  DATA_PROVIDER: 'firebase', // Pruebas históricas aisladas; runtime productivo usa Supabase.
   FIREBASE_PROJECT_ID: projectId,
   FIREBASE_CLIENT_EMAIL: `worker@${projectId}.iam.gserviceaccount.com`,
   FIREBASE_PRIVATE_KEY: privateKeyPem,
@@ -47,7 +48,7 @@ const env = (): Env => ({
   DOCUMENTS: {} as R2Bucket,
 });
 
-type FormationMockOptions = { actorScope?: string[]; training?: { coordinatorId?: string; companyId?: string; campaignId?: string; status?: string; trainerId?: string; trainerName?: string }; trainerRole?: string; trainerStatus?: string; trainerCompanyId?: string };
+type FormationMockOptions = { actorScope?: string[]; actorLegacy?: boolean; actorEnabled?: boolean; training?: { coordinatorId?: string; companyId?: string; campaignId?: string; status?: string; trainerId?: string; trainerName?: string }; trainerRole?: string; trainerStatus?: string; trainerCompanyId?: string };
 function installGoogleMocks(actorRole = 'ADMIN', options: FormationMockOptions = {}) {
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
@@ -56,7 +57,12 @@ function installGoogleMocks(actorRole = 'ADMIN', options: FormationMockOptions =
     calls.push({ url, method, body });
     if (url.includes('/service_accounts/v1/jwk/')) return Response.json({ keys: [{ ...publicJwk, kid: 'test-key', alg: 'RS256', use: 'sig' }] }, { headers: { 'cache-control': 'max-age=3600' } });
     if (url === 'https://oauth2.googleapis.com/token') return Response.json({ access_token: 'google-access-token' });
-    if (url.includes(`/documents/users/${actorUid}`)) return Response.json(actorDocument(actorRole, options.actorScope));
+    if (url.includes(`/documents/users/${actorUid}`)) return Response.json(actorDocument(actorRole, options.actorScope, options.actorLegacy, options.actorEnabled ?? true));
+    if (url.includes('/documents/campaigns/campaign-1')) {
+      if (method === 'PATCH') return Response.json({});
+      return Response.json({ fields: { id: stringValue('campaign-1'), companyId: stringValue('company-1'), title: stringValue('Campaña original'), vacancies: { integerValue: '10' }, positionsCovered: { integerValue: '2' }, status: stringValue('EN_PROCESO'), responsibles: { arrayValue: { values: [] } } } });
+    }
+    if (url.includes('/documents/systemSettings/company-1')) return Response.json({}, { status: 404 });
     if (url.endsWith('/documents:runQuery')) return Response.json([]);
     if (url.endsWith('/documents:commit')) return Response.json({ writeResults: [] });
     if (url.endsWith('/accounts:lookup')) return Response.json({ users: [] });
@@ -137,21 +143,21 @@ describe('administración de usuarios', () => {
 
   it('crea Auth, perfil y auditoría con los módulos por defecto', async () => {
     installGoogleMocks();
-    const result = await request('/api/users', 'POST', { username: 'nuevo.user', password: 'Password123', displayName: 'Nuevo Usuario', role: 'FORMADOR', status: 'ACTIVO' });
+    const result = await request('/api/users', 'POST', { username: 'nuevo.user', password: 'Password123', displayName: 'Nuevo Usuario', nickname: 'Nue', tagline: 'Listo para formar talento', avatarUrl: 'https://images.example.com/nuevo.jpg', role: 'FORMADOR', status: 'ACTIVO' });
     expect(result.status).toBe(200);
     await expect(result.json()).resolves.toEqual({ ok: true });
     expect(calls.some(call => call.url.endsWith('/accounts') && call.body?.email === 'nuevo.user@auth.talentcc.invalid')).toBe(true);
-    expect(committedFields('/users/created-uid')).toMatchObject({ role: { stringValue: 'FORMADOR' }, module: { arrayValue: { values: [{ stringValue: 'FORMACION' }] } } });
+    expect(committedFields('/users/created-uid')).toMatchObject({ role: { stringValue: 'FORMADOR' }, nickname: { stringValue: 'Nue' }, tagline: { stringValue: 'Listo para formar talento' }, avatarUrl: { stringValue: 'https://images.example.com/nuevo.jpg' }, module: { arrayValue: { values: [{ stringValue: 'FORMACION' }] } } });
     expect(calls.some(call => (JSON.stringify(call.body) ?? '').includes('/auditLogs/'))).toBe(true);
   });
 
   it('actualiza rol, alcance y estado usando el endpoint /access', async () => {
     installGoogleMocks();
-    const result = await request('/api/users/target-uid/access', 'PATCH', { role: 'COORDINADOR_FORMACION', status: 'INACTIVO', module: ['FORMACION'], scope: ['CMP-1'], displayName: 'Coordinador' });
+    const result = await request('/api/users/target-uid/access', 'PATCH', { role: 'COORDINADOR_FORMACION', status: 'INACTIVO', module: ['FORMACION'], scope: ['CMP-1'], displayName: 'Coordinador', nickname: 'Coordi', tagline: 'Coordinando grupos' });
     expect(result.status).toBe(200);
     await expect(result.json()).resolves.toEqual({ ok: true });
     expect(calls.some(call => call.url.endsWith('/accounts:update') && call.body?.disabled === true)).toBe(true);
-    expect(committedFields('/users/target-uid')).toMatchObject({ role: { stringValue: 'COORDINADOR_FORMACION' }, enabled: { booleanValue: false }, scope: { arrayValue: { values: [{ stringValue: 'CMP-1' }] } } });
+    expect(committedFields('/users/target-uid')).toMatchObject({ role: { stringValue: 'COORDINADOR_FORMACION' }, nickname: { stringValue: 'Coordi' }, tagline: { stringValue: 'Coordinando grupos' }, enabled: { booleanValue: false }, scope: { arrayValue: { values: [{ stringValue: 'CMP-1' }] } } });
   });
 
   it('restablece contraseña y registra auditoría', async () => {
@@ -160,6 +166,45 @@ describe('administración de usuarios', () => {
     expect(result.status).toBe(200);
     expect(calls.some(call => call.url.endsWith('/accounts:update') && call.body?.password === 'NewPassword123')).toBe(true);
     expect(calls.some(call => (JSON.stringify(call.body) ?? '').includes('/auditLogs/'))).toBe(true);
+  });
+});
+
+describe('configuración del sistema', () => {
+  it('devuelve valores predeterminados cuando aún no existe configuración', async () => {
+    installGoogleMocks();
+    const result = await request('/api/settings', 'GET');
+    expect(result.status).toBe(200);
+    await expect(result.json()).resolves.toMatchObject({ minPassGrade: 80, minAttendancePct: 85, slaSelectionDays: 5, ojtDurationDays: 5 });
+  });
+
+  it('persiste una configuración válida y registra auditoría', async () => {
+    installGoogleMocks();
+    const settings = { companyName: 'Talent-On', minPassGrade: 80, minAttendancePct: 85, slaSelectionDays: 5, ojtDurationDays: 5 };
+    const result = await request('/api/settings', 'PATCH', settings);
+    expect(result.status).toBe(200);
+    await expect(result.json()).resolves.toEqual(settings);
+    expect(committedFields('/systemSettings/company-1')).toMatchObject({ companyName: { stringValue: 'Talent-On' }, minPassGrade: { integerValue: '80' } });
+    expect(calls.some(call => (JSON.stringify(call.body) ?? '').includes('SYSTEM_SETTINGS_UPDATED'))).toBe(true);
+  });
+
+  it('rechaza configuración para roles no administradores', async () => {
+    installGoogleMocks('JEFE_FORMACION');
+    const result = await request('/api/settings', 'GET');
+    expect(result.status).toBe(403);
+  });
+});
+
+describe('integridad de convocatorias', () => {
+  it('ignora campos internos o de otro tenant en la edición general', async () => {
+    installGoogleMocks('JEFE_SELECCION');
+    const result = await request('/api/campaigns/campaign-1', 'PATCH', { title: 'Campaña actualizada', companyId: 'company-2', assignedUserIds: ['attacker'], createdBy: 'attacker' });
+    expect(result.status).toBe(200);
+    const patchCall = calls.find(call => call.method === 'PATCH' && call.url.includes('/documents/campaigns/campaign-1'));
+    const written = patchCall?.body?.fields as Record<string, unknown>;
+    expect(written).toHaveProperty('title');
+    expect(written).not.toHaveProperty('companyId');
+    expect(written).not.toHaveProperty('assignedUserIds');
+    expect(written).not.toHaveProperty('createdBy');
   });
 });
 
@@ -210,5 +255,27 @@ describe('asignación de formadores y alcance RBAC', () => {
     installGoogleMocks('FORMADOR');
     const result = await request('/api/users/assignable', 'GET');
     expect(result.status).toBe(403);
+  });
+
+  it('mantiene acceso de perfiles históricos activos sin enabled ni allowedModules', async () => {
+    installGoogleMocks('JEFE_FORMACION', { actorLegacy: true });
+    const result = await request('/api/trainings/training-1/trainer', 'GET');
+    expect(result.status).toBe(200);
+  });
+
+  it('no duplica una reasignación cuando el mismo formador ya está asignado', async () => {
+    installGoogleMocks('JEFE_FORMACION', { training: { trainerId: 'trainer-1', trainerName: 'Trainer Uno' } });
+    const result = await request('/api/trainings/training-1/trainer', 'POST', { trainerId: 'trainer-1' });
+    expect(result.status).toBe(200);
+    await expect(result.json()).resolves.toMatchObject({ ok: true, alreadyAssigned: true });
+    expect(calls.some(call => call.method === 'PATCH' && call.url.includes('/documents/trainings/training-1'))).toBe(false);
+    expect(calls.some(call => (JSON.stringify(call.body) ?? '').includes('TRAINER_REASSIGNED'))).toBe(false);
+  });
+
+  it('rechaza perfiles inactivos aunque el token sea válido', async () => {
+    installGoogleMocks('ADMIN', { actorEnabled: false });
+    const result = await request('/api/users/assignable', 'GET');
+    expect(result.status).toBe(403);
+    await expect(result.json()).resolves.toEqual({ message: 'ACCOUNT_DISABLED' });
   });
 });

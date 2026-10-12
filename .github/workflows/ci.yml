@@ -22,6 +22,12 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Configurar JDK para Firebase Emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Instalar dependencias
         run: npm ci
 
@@ -30,6 +36,9 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Probar reglas de Firestore
+        run: npm run test:emulators
 
       - name: Construir imagen de producción
         run: docker build -t talent-on:ci .
@@ -68,3 +77,9 @@ jobs:
 
       - name: Validar Worker
         run: npm run check
+
+      - name: Probar Worker
+        run: npm test
+
+      - name: Validar bundle del Worker
+        run: npx wrangler deploy --dry-run

@@ -8,6 +8,8 @@ coverage/
 .DS_Store
 *.log
 .env*
+.dev.vars*
 !.env.example
 !.env.demo
 !.dev.vars.example
+supabase/.local/

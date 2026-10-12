@@ -21,7 +21,7 @@ import { useTalent } from '../../context/TalentContext';
 import { ActiveNavModule, AppModuleName, UserRole } from '../../types';
 import { IdentityAvatar } from '../common/IdentityAvatar';
 
-export const Sidebar: React.FC = () => {
+export const Sidebar: React.FC<{ navigationOpen?: boolean; onCloseNavigation?: () => void }> = ({ navigationOpen, onCloseNavigation }) => {
   const [expandedModule, setExpandedModule] = React.useState<AppModuleName | null>('SELECCION');
   const { 
     activeModule, 
@@ -113,6 +113,7 @@ export const Sidebar: React.FC = () => {
       modKey: 'SELECCION',
       items: selectionItems
     });
+    if (['ADMIN', 'RECLUTADOR', 'ANALISTA_SELECCION'].includes(currentUser.role)) selectionItems.push({ id: 'SELECCION_CAPTACION', label: 'Captación', icon: UserPlus, badge: null });
   }
 
   // 2. MÓDULO FORMACIÓN & OJT
@@ -242,7 +243,7 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <aside className="talent-sidebar bg-gradient-to-b from-[#0C1E35] via-[#123F63] to-[#0B3654] text-white flex flex-col h-screen border-r border-[#154E7D] shrink-0 select-none shadow-[5px_0_22px_rgba(12,30,53,0.12)]">
+    <aside id="talent-navigation" className={`talent-sidebar ${navigationOpen ? 'is-open' : ''} bg-gradient-to-b from-[#0C1E35] via-[#123F63] to-[#0B3654] text-white flex flex-col h-screen border-r border-[#154E7D] shrink-0 select-none shadow-[5px_0_22px_rgba(12,30,53,0.12)]`}>
       {/* Brand Identity */}
       <div className="talent-sidebar-brand px-4 flex items-center justify-center border-b border-white/10 overflow-hidden">
         <img src="/talent-on-sidebar-logo.png" alt="Talent-On" className="h-auto w-28 max-h-16 object-contain mix-blend-screen" />
@@ -287,7 +288,7 @@ export const Sidebar: React.FC = () => {
                   return (
                     <button
                       key={item.id}
-                      onClick={() => setActiveModule(item.id)}
+                      onClick={() => { setActiveModule(item.id); onCloseNavigation?.(); }}
                       className={`min-h-10 w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 group cursor-pointer ${
                         isActive
                           ? 'bg-white text-[#143A56] font-semibold shadow-sm'
@@ -337,8 +338,8 @@ export const Sidebar: React.FC = () => {
             fallbackClassName="bg-white/15 text-white"
           />
           <div className="min-w-0 flex-1">
-            <div className="text-white font-bold leading-tight truncate">{currentUser.name}</div>
-            <div className="text-white/60 text-[10px] truncate">{currentUser.email}</div>
+            <div className="text-white font-bold leading-tight truncate">{currentUser.nickname || currentUser.name}</div>
+            <div className="text-white/60 text-[10px] truncate">{currentUser.tagline || currentUser.email}</div>
           </div>
           {currentUser.role === 'ADMIN' && (
             <span className="px-1.5 py-0.5 rounded bg-white/10 border border-white/15 text-white text-[9px] font-extrabold uppercase shrink-0">

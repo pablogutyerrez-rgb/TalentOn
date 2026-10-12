@@ -3,9 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2026-08-29"
 
 [vars]
-FIREBASE_PROJECT_ID = "proyecto-de-prueba-b8928"
-ALLOWED_ORIGIN = "http://localhost:3000,http://localhost:3001"
-PRODUCTION_ORIGIN = ""
+DATA_PROVIDER = "supabase"
+ALLOWED_ORIGIN = "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001"
+PRODUCTION_ORIGIN = "https://talent-on-production.up.railway.app"
 MAX_UPLOAD_BYTES = "10485760"
 ATTENDANCE_TIME_ZONE_OFFSET = "-05:00"
 

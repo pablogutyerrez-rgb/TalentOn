@@ -1,3 +1,4 @@
+import { workerUpload } from '../../services/workerApi';
 import React, { useEffect, useState } from 'react';
 import { 
   X, 
@@ -15,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useTalent } from '../../context/TalentContext';
 import { LeadSourceType } from '../../types';
+import { getWorkerErrorMessage } from '../../services/workerApi';
 
 interface CandidateCreateModalProps {
   isOpen: boolean;
@@ -47,11 +49,15 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
   const [recruiterId, setRecruiterId] = useState(currentUser.id);
   const [source, setSource] = useState<LeadSourceType>('Facebook Gratis');
   const [applicationDate, setApplicationDate] = useState(new Date().toISOString().split('T')[0]);
-  const [cvFileName, setCvFileName] = useState('cv_adjunto.pdf');
+  const [cvFile, setCvFile] = useState<File|null>(null);
+  const cvFileName = cvFile?.name || 'Sin CV adjunto';
+  const [createdCandidateId, setCreatedCandidateId] = useState<string|null>(null);
   const [observations, setObservations] = useState('');
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    if (isOpen) setDuplicateWarning(null);
     if (isOpen && defaultCampaignId) setCampaignId(defaultCampaignId);
     if (isOpen && currentUser.role === 'RECLUTADOR') setRecruiterId(currentUser.id);
   }, [isOpen, defaultCampaignId, currentUser.id, currentUser.role]);
@@ -89,24 +95,31 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!firstName.trim() || !lastName.trim() || !dni.trim() || !phone.trim()) return;
 
     // Check duplicate
-    const dup = checkDuplicateCandidate(dni, phone);
+    const dup = createdCandidateId ? {isDuplicate:false,reason:undefined} : checkDuplicateCandidate(dni, phone);
     if (dup.isDuplicate) {
       setDuplicateWarning(dup.reason || 'No se puede registrar un postulante duplicado');
       return;
     }
 
     const targetCamp = campaigns.find(c => c.id === campaignId) || campaigns[0];
+    if (!targetCamp) {
+      setDuplicateWarning('Selecciona una convocatoria disponible antes de registrar al postulante.');
+      return;
+    }
     const recruiter = availableUsers.find(u => u.id === recruiterId);
 
-    const res = await addCandidate({
+    setIsSubmitting(true);
+    try {
+      const res = createdCandidateId ? {success:true,candidate:{id:createdCandidateId},message:undefined} : await addCandidate({
       dni: dni.trim(),
       fullName: `${firstName.trim()} ${lastName.trim()}`,
       firstName: firstName.trim(),
       lastName: lastName.trim(),
-      email: email.trim() || `${firstName.toLowerCase().replace(/\s+/g, '')}@gmail.com`,
+      email: email.trim(),
       phone: phone.trim(),
       city: `Lima - ${district}`,
       district: district,
@@ -116,20 +129,26 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
       jobProfile: targetCamp.title,
       recruiterId: recruiter?.id || currentUser.id,
       recruiterName: recruiter?.name || currentUser.name,
-      analystId: targetCamp.assignedAnalystId || 'USR-ANALISTA-01',
-      analystName: targetCamp.assignedAnalystName || 'Carlos Mendoza',
+      analystId: targetCamp.assignedAnalystId || '',
+      analystName: targetCamp.assignedAnalystName || '',
       source: source,
       applicationDate: applicationDate,
-      cvUrl: cvFileName,
+      cvUrl: undefined,
       observationsGeneral: observations
-    });
+      });
 
-    if (res.success && res.candidate) {
-      onClose();
-      // Optionally open the 360 view
-      openCandidate360(res.candidate.id);
-    } else if (res.message) {
-      setDuplicateWarning(res.message);
+      if (res.success && res.candidate) {
+        setCreatedCandidateId(res.candidate.id);
+        if(cvFile){const form=new FormData();form.append('file',cvFile);form.append('name',cvFile.name);form.append('type','CV');await workerUpload('/api/candidates/'+encodeURIComponent(res.candidate.id)+'/documents',form);}
+        onClose();
+        openCandidate360(res.candidate.id);
+      } else if (res.message) {
+        setDuplicateWarning(res.message);
+      }
+    } catch (error) {
+      setDuplicateWarning(getWorkerErrorMessage(error, 'No se pudo registrar al postulante. Inténtalo nuevamente.'));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -156,7 +175,7 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
               </div>
             )}
 
-            {duplicateWarning && <div className="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" /><div><p className="font-bold">Posible postulante duplicado</p><p className="mt-0.5 text-2xs">{duplicateWarning}</p></div></div>}
+            {duplicateWarning && <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" /><div><p className="font-bold">Revisa la información</p><p className="mt-0.5 text-2xs">{duplicateWarning}</p></div></div>}
 
             <section className="space-y-4 border-b border-slate-200 pb-5">
               <h4 className="flex items-center gap-2 text-sm font-bold text-[#143A56]"><UserPlus className="h-5 w-5 text-blue-700" />1. Datos del postulante</h4>
@@ -183,15 +202,15 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
             <section className="space-y-4">
               <h4 className="flex items-center gap-2 text-sm font-bold text-[#143A56]"><FileText className="h-5 w-5 text-blue-700" />3. Información adicional <span className="text-xs font-normal text-slate-500">(opcional)</span></h4>
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                <div><label className={fieldLabelClass}>Adjuntar CV</label><div className="flex min-h-[76px] items-center justify-between gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-3"><div className="flex min-w-0 items-center gap-3"><FileText className="h-6 w-6 shrink-0 text-blue-700" /><div className="min-w-0"><span className="block truncate text-xs font-semibold text-slate-800">{cvFileName}</span><span className="mt-0.5 flex items-center gap-1 text-2xs font-medium text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" />Cargado</span></div></div><label className="shrink-0 cursor-pointer rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-blue-700 hover:bg-slate-50">Cambiar<input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={e => e.target.files?.[0] && setCvFileName(e.target.files[0].name)} /></label></div></div>
+                <div><label className={fieldLabelClass}>Adjuntar CV</label><div className="flex min-h-[76px] items-center justify-between gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-3"><div className="flex min-w-0 items-center gap-3"><FileText className="h-6 w-6 shrink-0 text-blue-700" /><div className="min-w-0"><span className="block truncate text-xs font-semibold text-slate-800">{cvFileName}</span><span className="mt-0.5 flex items-center gap-1 text-2xs font-medium text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" />{cvFile?'Seleccionado':'Opcional'}</span></div></div><label className="shrink-0 cursor-pointer rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-blue-700 hover:bg-slate-50">Cambiar<input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={e => setCvFile(e.target.files?.[0] || null)} /></label></div></div>
                 <div><label className={fieldLabelClass}>Observaciones</label><textarea rows={3} maxLength={300} value={observations} onChange={e => setObservations(e.target.value)} placeholder="Notas adicionales sobre el candidato..." className="min-h-[76px] w-full resize-none rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-xs text-[#143A56] outline-hidden transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100" /><span className="mt-1 block text-right text-2xs text-slate-400">{observations.length}/300</span></div>
               </div>
             </section>
           </div>
 
           <footer className="sticky bottom-0 flex shrink-0 justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4 sm:px-7">
-            <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-xs font-semibold text-[#143A56] hover:bg-slate-50">Cancelar</button>
-            <button type="submit" disabled={!!duplicateWarning} className="flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"><Save className="h-4 w-4" />Registrar postulante</button>
+            <button type="button" disabled={isSubmitting} onClick={onClose} className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-xs font-semibold text-[#143A56] hover:bg-slate-50 disabled:opacity-50">Cancelar</button>
+            <button type="submit" disabled={!!duplicateWarning || isSubmitting} className="flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"><Save className="h-4 w-4" />{isSubmitting ? 'Registrando…' : 'Registrar postulante'}</button>
           </footer>
         </form>
       </div>

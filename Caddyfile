@@ -17,10 +17,15 @@
         format json
     }
 
-    rewrite /health /
+    handle /health {
+        header Content-Type application/json
+        respond `{"ok":true}` 200
+    }
 
-    root * /app/dist
-    encode zstd gzip
-    try_files {path} /index.html
-    file_server
+    handle {
+        root * /app/dist
+        encode zstd gzip
+        try_files {path} /index.html
+        file_server
+    }
 }

@@ -5,6 +5,22 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 let testEnv: RulesTestEnvironment;
 
+describe('Captación: acceso exclusivamente mediante Worker', () => {
+  it('deniega lectura y escritura directa de las colecciones auxiliares', async () => {
+    const collections = ['captureLinks', 'captations', 'captureIdentities', 'captureRequests', 'captureRateLimits', 'captureAudit', 'selectionApplications', 'selectionTemplates', 'selectionTemplateFamilies', 'selectionMessages'];
+    await testEnv.withSecurityRulesDisabled(async context => {
+      for (const name of collections) await setDoc(doc(context.firestore(), name, 'record'), { companyId: 'company-1', ownerUid: 'recruiter-1' });
+    });
+    for (const context of [testEnv.authenticatedContext('admin-1'), testEnv.authenticatedContext('recruiter-1'), testEnv.unauthenticatedContext()]) {
+      for (const name of collections) {
+        await assertFails(getDoc(doc(context.firestore(), name, 'record')));
+        await assertFails(getDocs(collection(context.firestore(), name)));
+        await assertFails(setDoc(doc(context.firestore(), name, 'new'), { ownerUid: 'recruiter-1' }));
+      }
+    }
+  });
+});
+
 beforeAll(async () => {
   testEnv = await initializeTestEnvironment({
     projectId: 'talentcc-rules-test',

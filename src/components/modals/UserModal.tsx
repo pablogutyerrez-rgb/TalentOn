@@ -13,7 +13,8 @@ import {
   Sparkles,
   CheckSquare,
   Square,
-  AlertCircle
+  AlertCircle,
+  Upload
 } from 'lucide-react';
 import { UserProfile, UserRole, AppModuleName } from '../../types';
 import { useTalent } from '../../context/TalentContext';
@@ -38,6 +39,37 @@ const DEFAULT_AVATARS = [
   'https://images.unsplash.com/photo-1567532939604-b6b5b0db2604?w=150&auto=format&fit=crop&q=80',
   'https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=150&auto=format&fit=crop&q=80'
 ];
+
+const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
+const MAX_PROFILE_PHOTO_DATA_URL = 180_000;
+
+const profilePhotoDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
+  if (!file.type.startsWith('image/')) return reject(new Error('Selecciona una imagen JPG, PNG o WebP.'));
+  if (file.size > MAX_PROFILE_PHOTO_BYTES) return reject(new Error('La foto debe pesar como máximo 5 MB.'));
+
+  const reader = new FileReader();
+  reader.onerror = () => reject(new Error('No fue posible leer la foto seleccionada.'));
+  reader.onload = () => {
+    const image = new Image();
+    image.onerror = () => reject(new Error('La imagen seleccionada no es válida.'));
+    image.onload = () => {
+      const maxSide = 512;
+      const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) return reject(new Error('No fue posible preparar la foto.'));
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      let photo = canvas.toDataURL('image/jpeg', 0.82);
+      if (photo.length > MAX_PROFILE_PHOTO_DATA_URL) photo = canvas.toDataURL('image/jpeg', 0.62);
+      if (photo.length > MAX_PROFILE_PHOTO_DATA_URL) return reject(new Error('La foto es demasiado detallada. Elige una imagen más simple.'));
+      resolve(photo);
+    };
+    image.src = String(reader.result);
+  };
+  reader.readAsDataURL(file);
+});
 
 const MODULE_OPTIONS: { id: AppModuleName; label: string; description: string; color: string }[] = [
   { 
@@ -113,7 +145,9 @@ export const UserModal: React.FC<UserModalProps> = ({
   const [scopeCampaignIds, setScopeCampaignIds] = useState<string[]>([]);
   const [subordinateUserIds, setSubordinateUserIds] = useState<string[]>([]);
   const [avatarUrl, setAvatarUrl] = useState(DEFAULT_AVATARS[0]);
-  const [customAvatar, setCustomAvatar] = useState(false);
+  const [nickname, setNickname] = useState('');
+  const [tagline, setTagline] = useState('');
+  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -129,6 +163,8 @@ export const UserModal: React.FC<UserModalProps> = ({
       setScopeCampaignIds(userToEdit.scopeCampaignIds || []);
       setSubordinateUserIds(userToEdit.subordinateUserIds || []);
       setAvatarUrl(userToEdit.avatarUrl || DEFAULT_AVATARS[0]);
+      setNickname(userToEdit.nickname || '');
+      setTagline(userToEdit.tagline || '');
     } else {
       setName('');
       setEmail('');
@@ -141,6 +177,8 @@ export const UserModal: React.FC<UserModalProps> = ({
       setScopeCampaignIds([]);
       setSubordinateUserIds([]);
       setAvatarUrl(DEFAULT_AVATARS[Math.floor(Math.random() * DEFAULT_AVATARS.length)]);
+      setNickname('');
+      setTagline('');
     }
     setErrorMsg(null);
   }, [userToEdit, isOpen]);
@@ -213,6 +251,19 @@ export const UserModal: React.FC<UserModalProps> = ({
     }
   };
 
+  const handleProfilePhoto = async (file?: File) => {
+    if (!file) return;
+    setIsProcessingPhoto(true);
+    setErrorMsg(null);
+    try {
+      setAvatarUrl(await profilePhotoDataUrl(file));
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'No fue posible procesar la foto.');
+    } finally {
+      setIsProcessingPhoto(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = sanitizeDisplayName(name, '');
@@ -238,7 +289,9 @@ export const UserModal: React.FC<UserModalProps> = ({
         allowedModules,
         scopeCampaignIds,
         subordinateUserIds,
-        avatarUrl
+        avatarUrl,
+        nickname: sanitizeDisplayName(nickname, ''),
+        tagline: sanitizeDisplayName(tagline, '')
         });
       } else {
         if (password.length < 8) {
@@ -256,6 +309,8 @@ export const UserModal: React.FC<UserModalProps> = ({
         scopeCampaignIds,
         subordinateUserIds,
         avatarUrl,
+        nickname: sanitizeDisplayName(nickname, ''),
+        tagline: sanitizeDisplayName(tagline, ''),
         password,
         createdAt: new Date().toISOString().split('T')[0]
         });
@@ -341,6 +396,21 @@ export const UserModal: React.FC<UserModalProps> = ({
                   </button>
                 ))}
               </div>
+              <label className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-white px-2.5 py-1.5 text-2xs font-bold text-sky-700 cursor-pointer hover:bg-sky-50 transition-colors">
+                <Upload className="w-3.5 h-3.5" />
+                {isProcessingPhoto ? 'Procesando…' : 'Subir foto'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="sr-only"
+                  disabled={isProcessingPhoto}
+                  onChange={(event) => {
+                    void handleProfilePhoto(event.target.files?.[0]);
+                    event.currentTarget.value = '';
+                  }}
+                />
+              </label>
+              <span className="mt-1 text-[9px] text-slate-400">JPG, PNG o WebP · máx. 5 MB</span>
             </div>
 
             {/* Basic data inputs */}
@@ -360,6 +430,30 @@ export const UserModal: React.FC<UserModalProps> = ({
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg pl-8 pr-3 py-2 text-xs text-slate-800 font-medium focus:bg-white focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-700 block mb-1">Apodo de perfil</label>
+                <input
+                  type="text"
+                  maxLength={48}
+                  placeholder="Ej. Pablo G."
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 font-medium focus:bg-white focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-700 block mb-1">Frase de perfil</label>
+                <input
+                  type="text"
+                  maxLength={120}
+                  placeholder="Ej. Conectamos talento, impulsamos resultados."
+                  value={tagline}
+                  onChange={(e) => setTagline(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 font-medium focus:bg-white focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">

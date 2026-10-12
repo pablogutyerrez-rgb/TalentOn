@@ -49,13 +49,17 @@ import {
 import { DiscardCandidateModal } from '../modals/DiscardCandidateModal';
 import { DocumentacionContratacionTab } from './DocumentacionContratacionTab';
 import { getExpedientAnalysis } from '../../utils/expedientUtils';
+import { getWorkerErrorMessage } from '../../services/workerApi';
+import { captureApi, CaptureDossier } from '../../services/captureApi';
+import { CaptureDossierPanel } from './CaptureDossierPanel';
+import { SelectionAdvancedPanel } from './SelectionAdvancedPanel';
 
 interface Candidate360ModalProps {
   candidateId: string | null;
   onClose: () => void;
 }
 
-type TabType = 'resumen' | 'datos' | 'seguimiento' | 'entrevista' | 'verificacion_tecnica' | 'evaluaciones' | 'documentos' | 'historial';
+type TabType = 'resumen' | 'datos' | 'seguimiento' | 'entrevista' | 'verificacion_tecnica' | 'evaluaciones' | 'documentos' | 'historial' | 'proceso';
 
 export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
   candidateId,
@@ -71,12 +75,17 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
     addCandidateContactHistory,
     addCandidateObservation,
     markCandidateAptoCapacitacion,
+    listCandidateDocuments,
+    downloadCandidateDocument,
     cohorts,
     scopedCampaigns
   } = useTalent();
 
   const [activeTab, setActiveTab] = useState<TabType>('resumen');
+  const [captureDossier, setCaptureDossier] = useState<CaptureDossier | null>(null);
   const [isDiscardModalOpen, setIsDiscardModalOpen] = useState(false);
+  const [cvDownloading, setCvDownloading] = useState(false);
+  const [cvError, setCvError] = useState('');
 
   // New Contact Form State
   const [newContactType, setNewContactType] = useState<ContactType>('LLAMADA');
@@ -127,6 +136,21 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
   const campaignCode = candidate.campaignCode || campaign?.code;
   const campaignCompany = campaign?.company || campaign?.client;
   const campaignLocation = campaign?.location || candidate.city;
+  const hasTrainingLink = Boolean(candidate.trainingId || candidate.training?.cohortId);
+  const canAccessCandidateDocuments =
+    (['ADMIN', 'JEFE_FORMACION', 'COORDINADOR_FORMACION'].includes(currentUser.role) && hasTrainingLink)
+    || (['JEFE_TALENTO', 'ANALISTA_TALENTO'].includes(currentUser.role) && candidate.currentProcess === 'GESTION_TALENTO');
+  const handleCvDownload = async () => {
+    setCvDownloading(true); setCvError('');
+    try {
+      const documents = await listCandidateDocuments(candidate.id);
+      const cv = documents.find(document => document.type === 'CV');
+      if (!cv) throw new Error('CV_NOT_FOUND');
+      await downloadCandidateDocument(candidate.id, cv.id, cv.name || `${candidateName}-CV.pdf`);
+    } catch (error) {
+      setCvError(getWorkerErrorMessage(error, 'El candidato no tiene un CV cargado disponible.'));
+    } finally { setCvDownloading(false); }
+  };
 
   // Advance to next logical stage
   const handleAdvanceStage = () => {
@@ -300,6 +324,8 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
           </div>
 
           {/* Tab Navigation (8 Tabs) */}
+          {['ADMIN', 'RECLUTADOR'].includes(currentUser.role) && <div className="border-b border-slate-200 px-5 py-2"><button className="text-xs font-semibold text-sky-700" onClick={async () => { try { setCaptureDossier(await captureApi.dossier(candidate.id)); } catch { alert('No hay captaciones disponibles dentro de tu alcance.'); } }}>Origen e historial de captaciones</button></div>}
+          {captureDossier && <CaptureDossierPanel dossier={captureDossier} onClose={() => setCaptureDossier(null)} />}
           <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-5 custom-scrollbar">
             {[
               { id: 'resumen', label: 'Resumen', icon: FileText },
@@ -308,6 +334,7 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
               { id: 'entrevista', label: 'Entrevista', icon: MessageSquare },
               { id: 'verificacion_tecnica', label: 'Verificación', icon: Laptop },
               { id: 'evaluaciones', label: 'Evaluaciones', icon: Award, badge: candidate.selection?.evaluationsList?.length || candidate.selection?.evaluations?.length },
+              ...(['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION', 'RECLUTADOR'].includes(currentUser.role) ? [{ id: 'proceso', label: 'Gestión avanzada', icon: History }] : []),
               ...(currentUser.role === 'FORMADOR' ? [] : [{ id: 'documentos', label: 'Documentos', icon: FolderOpen, badge: (candidate.documents?.length || candidate.selection?.documents?.length) }])
             ].map(tab => {
               const Icon = tab.icon;
@@ -338,6 +365,7 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
 
           {/* Tab Content Body */}
           <div className="flex-1 space-y-4 overflow-y-auto p-4 custom-scrollbar sm:px-6">
+            {activeTab === 'proceso' && <SelectionAdvancedPanel candidateId={candidate.id} />}
             
             {/* TAB 1: RESUMEN */}
             {activeTab === 'resumen' && (
@@ -472,15 +500,17 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
 
                     <div>
                       <span className="text-slate-500 block text-2xs font-semibold">Currículum Vitae (CV)</span>
-                      <a 
-                        href="#cv" 
-                        onClick={(e) => { e.preventDefault(); alert(`Descargando CV de ${candidateName}`); }}
-                        className="text-sky-600 hover:text-sky-800 font-bold flex items-center gap-1 mt-0.5"
-                      >
-                        <FileText className="w-3.5 h-3.5" />
-                        {candidate.cvUrl || 'cv_candidato.pdf'}
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
+                      {(canAccessCandidateDocuments || ['ADMIN','JEFE_SELECCION','ANALISTA_SELECCION','RECLUTADOR'].includes(currentUser.role)) ? <button
+                          type="button"
+                          disabled={cvDownloading}
+                          onClick={() => void handleCvDownload()}
+                          className="text-sky-600 hover:text-sky-800 font-bold flex items-center gap-1 mt-0.5 disabled:opacity-60"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          {cvDownloading ? 'Descargando…' : 'Descargar CV'}
+                          <ExternalLink className="w-3 h-3" />
+                        </button> : <span className="mt-0.5 block text-2xs text-slate-500">Disponible en el expediente para roles autorizados.</span>}
+                      {cvError && <span className="mt-1 block text-2xs font-medium text-rose-600">{cvError}</span>}
                     </div>
                   </div>
                 </div>
