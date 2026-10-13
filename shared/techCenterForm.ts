@@ -1,4 +1,7 @@
 export const TECH_CENTER_FORM = 'techcenter-v1';
+export const COMPANY_CAPTURE_FORM = 'company-capture-v1';
+export type CaptureCampaignOption = { id: string; name: string };
+export const companyText = (text: string, name: string) => text.replaceAll('TECH CENTER', name);
 export const techCenterIntro = [
   'Somos TECH CENTER, una empresa peruana especializada en servicios de telemarketing, Contact Center y BPO, que trabaja con empresas nacionales e internacionales.',
   'Queremos conocer tu perfil profesional, experiencia y disponibilidad para identificar las oportunidades laborales que mejor se ajusten a tus competencias.',
@@ -50,14 +53,20 @@ export const techCenterSections: { title: string; hint?: string; when?: TechCent
 ];
 export const optionValue = (option: Option) => typeof option === 'string' ? option : option.value;
 export const optionLabel = (option: Option) => typeof option === 'string' ? option : option.label;
-export function visibleTechCenterFields(values: Record<string, unknown>) {
-  return techCenterSections.filter(section => !section.when || section.when(values))
+export function companySections(companyName: string, campaigns: CaptureCampaignOption[]) {
+  return techCenterSections.map(section => ({...section, fields:section.fields.map(field=>({
+    ...field,label:companyText(field.label,companyName),
+    ...(field.key==='preferredCampaign'?{options:campaigns.map(c=>({value:c.id,label:c.name})),max:240}:{}),
+  }))}));
+}
+export function visibleTechCenterFields(values: Record<string, unknown>, campaigns?: CaptureCampaignOption[]) {
+  return (campaigns ? companySections('TECH CENTER',campaigns) : techCenterSections).filter(section => !section.when || section.when(values))
     .flatMap(section => section.fields.filter(field => !field.when || field.when(values)));
 }
 // Strict allowlist shared by UI and server: hidden conditional answers are discarded.
-export function validateTechCenterAnswers(values: Record<string, unknown>) {
+export function validateTechCenterAnswers(values: Record<string, unknown>, campaigns?: CaptureCampaignOption[]) {
   const answers: Record<string, string> = {};
-  for (const field of visibleTechCenterFields(values)) {
+  for (const field of visibleTechCenterFields(values,campaigns)) {
     const raw = values[field.key];
     if (raw !== undefined && typeof raw !== 'string') throw new Error('Revisa: ' + field.label);
     const value = (raw as string || '').normalize('NFKC').trim();

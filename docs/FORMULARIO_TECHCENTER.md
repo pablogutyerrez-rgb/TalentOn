@@ -1,5 +1,18 @@
 # Formulario TECH CENTER
 
+## Actualización: formulario común por empresa
+
+La especificación inicial de TECH CENTER es ahora compartida por todas las empresas (company-capture-v1). La implementación conserva los nombres internos y el campo histórico techCenterAnswers para no alterar captaciones existentes.
+
+- El nombre de la empresa se resuelve desde el enlace guardado y sustituye TECH CENTER en cabecera, presentación, pregunta sobre empleo anterior y aviso breve.
+- El selector muestra las campañas activas del catálogo de esa empresa, identificadas por ID. No usa la lista fija del formulario original ni campañas de otras empresas. Empresas históricas no administradas por catálogo usan sus convocatorias activas/publicadas/en proceso.
+- Sin campañas disponibles se informa al postulante y se deshabilita Enviar. El servidor también rechaza opciones inexistentes o ajenas.
+- Se conserva la preferencia (ID y nombre) sin asignación automática. Las preguntas, condicionales y declaración de conocimiento son iguales para todos.
+- Migración 015 añade únicamente una consulta de metadatos (nombre e IDs/nombres de campañas) restringida al servidor. Requiere hash de enlace activo; anon/authenticated no pueden invocarla directamente.
+- Typecheck/build y 125 pruebas correctos. Pruebas PostgreSQL: aislamiento de empresa, campañas inactivas/asignaciones inactivas, permisos de RPC, guardado/lectura e idempotencia. Render comprobado con nombres de las tres empresas.
+
+Lo que sigue documenta la versión inicial, reemplazada por esta actualización.
+
 Versión: techcenter-v1. Fecha: 13 de octubre de 2026.
 
 - Se selecciona exclusivamente por companyId=techcenter del enlace guardado, no por parámetros manipulables del navegador.

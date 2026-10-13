@@ -46,6 +46,10 @@ export class RelationalRuntime {
  }
  async load(){this.hash=this.publicToken?await digest(this.publicToken):null;this.snapshot=this.actorId&&this.env.ORG_ENABLED==='true'?await this.rpc('talent_org_snapshot',{p_actor:this.actorId,p_company:this.env.ORG_COMPANY}):await this.rpc('talent_runtime_snapshot',{p_actor:this.actorId,p_public_hash:this.hash});return this;}
  get companyId(){return this.snapshot.companyId;}
+ async captureCatalog():Promise<{companyName:string;campaigns:{id:string;name:string}[]}>{
+  if(!this.hash)throw new SupabaseError(403,'FORBIDDEN');
+  return this.rpc('talent_capture_catalog',{p_hash:this.hash});
+ }
  rows(table:string){return this.snapshot.tables[table]||[];}
  private find(table:string,id:string){return this.rows(table).find(x=>String(x.id)===id);}
  private relate(table:string,key:string,id:string){return this.rows(table).filter(x=>x[key]===id&&x.archived_at==null);}

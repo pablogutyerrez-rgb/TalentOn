@@ -1,5 +1,5 @@
 import type { Env } from './index';
-import { TECH_CENTER_FORM, validateTechCenterAnswers } from '../../shared/techCenterForm';
+import { TECH_CENTER_FORM, COMPANY_CAPTURE_FORM, validateTechCenterAnswers, type CaptureCampaignOption } from '../../shared/techCenterForm';
 
 export type Data = Record<string, any>;
 type Actor = { uid: string; role: string; companyId: string; allowedModules: string[]; subordinateUserIds?: string[] };
@@ -10,10 +10,10 @@ export class CaptureError extends Error { constructor(message: string, public st
 const text = (v: unknown, max: number) => typeof v === 'string' ? v.normalize('NFKC').trim().replace(/\s+/g, ' ').slice(0, max) : '';
 const digits = (v: unknown) => text(v, 40).replace(/\D/g, '');
 const phone = (v: unknown) => { const n = digits(v); return n.length === 11 && n.startsWith('51') ? n.slice(2) : n; };
-export function captureInput(v: Data, techCenter = false) {
+export function captureInput(v: Data, techCenter = false, campaigns?: CaptureCampaignOption[]) {
   let techCenterAnswers: Record<string, string> | undefined;
   if (techCenter) {
-    try { techCenterAnswers = validateTechCenterAnswers(v); }
+    try { techCenterAnswers = validateTechCenterAnswers(v,campaigns); }
     catch (error) { throw new CaptureError((error as Error).message); }
     if (v.privacyAcknowledged !== true) throw new CaptureError('Confirma que has leído la información sobre el tratamiento de tus datos personales.');
   }
@@ -127,14 +127,23 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
     const owner = await store.get(`users/${link.ownerUid}`);
     if (!owner || owner.enabled === false || owner.status !== 'ACTIVO' || !['ADMIN', 'RECLUTADOR'].includes(owner.role) || owner.companyId !== link.companyId || (owner.role !== 'ADMIN' && !(owner.allowedModules || owner.module || []).includes('SELECCION'))) throw new CaptureError('Este enlace no está disponible.', 404);
     // Determine the form from the stored company, never from a client-supplied ID.
-    const techCenter = link.companyId === 'techcenter';
+    const catalog = env.DATA_PROVIDER !== 'firebase' ? await env.RELATIONAL_RUNTIME!.captureCatalog() : undefined;
+    const techCenter = Boolean(catalog) || link.companyId === 'techcenter';
+    const formVersion = catalog ? COMPANY_CAPTURE_FORM : TECH_CENTER_FORM;
     if (request.method === 'GET') return reply({
       active: true, noticeVersion: 'capture-v1',
       turnstileSiteKey: env.TURNSTILE_SITE_KEY || '',
       securityReady: Boolean(env.CAPTURE_HASH_SECRET && env.TURNSTILE_SECRET_KEY),
-      ...(techCenter ? { formId: TECH_CENTER_FORM, noticeVersion: TECH_CENTER_FORM } : {}),
+      ...(techCenter ? { formId: formVersion, noticeVersion: formVersion } : {}),
+      ...(catalog ? catalog : {}),
     });
-    const input = await body(request), applicant = captureInput(input, techCenter);
+    const input = await body(request), applicant = captureInput(input, techCenter, catalog?.campaigns);
+    const selectedCampaign = catalog?.campaigns.find(c=>c.id===applicant.techCenterAnswers?.preferredCampaign);
+    if(catalog && applicant.techCenterAnswers && selectedCampaign){
+      applicant.techCenterAnswers.preferredCampaignId=selectedCampaign.id;
+      applicant.techCenterAnswers.preferredCampaign=selectedCampaign.name;
+      applicant.techCenterAnswers.companyName=catalog.companyName;
+    }
     if (!/^[a-f0-9-]{36}$/.test(input.requestId || '')) throw new CaptureError('INVALID_REQUEST_ID');
     if (!env.CAPTURE_HASH_SECRET) throw new CaptureError('Captación pública pendiente de configuración.', 503);
     const requestKey = await digest(env.CAPTURE_HASH_SECRET!, `request:${pub[1]}:${input.requestId}`);
@@ -162,7 +171,7 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
       const candidateId = identity?.candidateId || matched.candidateId || `CAP-${crypto.randomUUID()}`;
       const eventId = crypto.randomUUID(), conflict = matched.conflict;
       const privacy = techCenter
-        ? { privacyAcknowledgement: { acknowledged: true, version: TECH_CENTER_FORM, acknowledgedAt: now } }
+        ? { privacyAcknowledgement: { acknowledged: true, version: formVersion, acknowledgedAt: now } }
         : { consent: { accepted: true, version: 'capture-v1', acceptedAt: now } };
       const event = { id: eventId, candidateId, linkId: pub[1], companyId: link.companyId, ownerUid: link.ownerUid, source: link.source, createdAt: now, status: 'Nuevo', applicant, conflict, possibleIds: matched.possibleIds, ...privacy, history: [{ at: now, actorUid: 'PUBLIC', action: 'Registro', status: 'Nuevo', note: '' }] };
       const writes: { path: string; data: Data; create?: boolean }[] = [

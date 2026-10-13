@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {captureInput} from '../src/capture';
-import {techCenterSections,visibleTechCenterFields} from '../../shared/techCenterForm';
+import {techCenterSections,visibleTechCenterFields,companySections,companyText} from '../../shared/techCenterForm';
 
 export const techApplicant = {
  documentType:'DNI',documentNumber:'99900123',fullName:'Postulante de Prueba',
@@ -10,6 +10,17 @@ export const techApplicant = {
  commitments:'No',modality:'Presencial',privacyAcknowledged:true,
 };
 describe('Formulario TECH CENTER',()=>{
+ it('misma estructura, textos por empresa y catálogo exclusivo del servidor',()=>{
+  const campaigns=[{id:'company-a:campaign-1',name:'Campaña de empresa A'}];
+  const sections=companySections('Empresa A',campaigns);
+  expect(sections.flatMap(s=>s.fields).filter(f=>/^\d+\./.test(f.label))).toHaveLength(22);
+  expect(sections.flatMap(s=>s.fields).find(f=>f.key==='workedAtTechCenter')?.label).toContain('Empresa A');
+  expect(companyText('Somos TECH CENTER','Empresa A')).toBe('Somos Empresa A');
+  const valid={...techApplicant,preferredCampaign:campaigns[0].id};
+  expect(captureInput(valid,true,campaigns).techCenterAnswers?.preferredCampaign).toBe(campaigns[0].id);
+  expect(()=>captureInput({...valid,preferredCampaign:'company-b:campaign-1'},true,campaigns)).toThrow();
+  expect(()=>captureInput(valid,true,[])).toThrow();
+ });
  it('incluye las 22 preguntas y no asigna una convocatoria automáticamente',()=>{
   expect(techCenterSections.flatMap(s=>s.fields).filter(f=>/^\d+\./.test(f.label))).toHaveLength(22);
   const result=captureInput({...techApplicant,campaignId:'injected',role:'ADMIN'},true);

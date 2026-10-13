@@ -12,6 +12,7 @@ const trainer='40000000-0000-4000-8000-000000000002';
 const other='40000000-0000-4000-8000-000000000003';
 let db:any,campaignId:string,personId:string,groupId:string;
 const objects=new Map<string,Uint8Array>();
+const registrationAnswers={adult:'Sí',contactCenterExperience:'No',workedAtTechCenter:'No',education:'Secundaria completa',workday:'Medio tiempo',availability:'Tarde',commitments:'No',modality:'Presencial',privacyAcknowledged:true};
 const authUsers=new Map<string,any>();
 const env={DATA_PROVIDER:'supabase',SUPABASE_URL:'https://sql-test.supabase.co',SUPABASE_SECRET_KEY:'sb_secret_test',ALLOWED_ORIGIN:'http://localhost:3000',PRODUCTION_ORIGIN:'https://example.test',MAX_UPLOAD_BYTES:'10485760',ATTENDANCE_TIME_ZONE_OFFSET:'-05:00',CAPTURE_HASH_SECRET:'test-only-key',DOCUMENTS:{put:async(k:string,v:any)=>{objects.set(k,new Uint8Array(await new Response(v).arrayBuffer()))},get:async(k:string)=>objects.has(k)?{body:objects.get(k),httpMetadata:{contentType:'application/pdf'}}:null,delete:async(k:string)=>{objects.delete(k)}}} as unknown as Env;
 async function call(path:string,method='GET',body?:any,actor=admin,company?:string){
@@ -49,7 +50,8 @@ describe('Transición relacional PostgreSQL 17',()=>{
    try{
     await db.exec('begin; set local role service_role;');
     let result:any;
-    if(fn==='talent_session_profile')result=await db.query('select public.talent_session_profile($1::uuid) as result',[body.p_auth]);
+    if(fn==='talent_capture_catalog')result=await db.query('select public.talent_capture_catalog($1) as result',[body.p_hash]);
+    else if(fn==='talent_session_profile')result=await db.query('select public.talent_session_profile($1::uuid) as result',[body.p_auth]);
     else if(fn==='talent_runtime_snapshot')result=await db.query('select public.talent_runtime_snapshot($1::uuid,$2) as result',[body.p_actor,body.p_public_hash]);
     else if(fn==='talent_runtime_commit')result=await db.query('select public.talent_runtime_commit($1::uuid,$2,$3,$4,$5::jsonb,$6::text[]) as result',[body.p_actor,body.p_public_hash,body.p_company,body.p_revision,JSON.stringify(body.p_rows),body.p_resets||[]]);
     else if(fn?.startsWith('talent_org_')){const keys=Object.keys(body);result=await db.query('select public.'+fn+'('+keys.map((k,i)=>k+'=> $'+(i+1)).join(',')+') as result',keys.map(k=>['p_rows','p_grants'].includes(k)?JSON.stringify(body[k]):Array.isArray(body[k])?'{'+body[k].join(',')+'}':body[k]&&typeof body[k]==='object'?JSON.stringify(body[k]):body[k]));}
@@ -170,7 +172,10 @@ describe('Transición relacional PostgreSQL 17',()=>{
   const link=await call('/api/capture/links','POST',{source:'Facebook'});expect(link.status).toBe(201);
   const publicRequest=async(body?:any)=>{const r=await worker.fetch(new Request('https://worker.test/api/public/capture/'+link.data.id,{method:body?'POST':'GET',headers:{Origin:'http://localhost:3000','Content-Type':'application/json','cf-connecting-ip':'192.0.2.1'},...(body?{body:JSON.stringify(body)}:{})}),env);const result:any=await r.json();if(!r.ok)console.log('PUBLIC ERROR',r.status,result);return {status:r.status,data:result};};
   const info=await publicRequest();expect(info.status).toBe(200);expect(info.data.ownerUid).toBeUndefined();expect(info.data.source).toBeUndefined();
-  const applicant={requestId:crypto.randomUUID(),fullName:'CI Captado',phone:'912345678',email:'fixture@example.test',documentType:'DNI',documentNumber:'99900003',district:'Lima',consent:true,turnstileToken:'test-token'};
+  expect(info.data.formId).toBe('company-capture-v1');
+  expect(info.data.companyName).toBe('CI');
+  expect(info.data.campaigns).toEqual([{id:campaignId,name:'Ganador'}]);
+  const applicant={...registrationAnswers,preferredCampaign:campaignId,requestId:crypto.randomUUID(),fullName:'CI Captado',phone:'912345678',email:'fixture@example.test',documentType:'DNI',documentNumber:'99900003',district:'Lima',turnstileToken:'test-token'};
   expect((await publicRequest(applicant)).status).toBe(201);expect((await publicRequest(applicant)).status).toBe(201);
   const manager=await call('/api/capture/management');expect(manager.status).toBe(200);expect(manager.data.events).toHaveLength(1);expect(manager.data.events[0].applicant.fullName).toBe('CI Captado');
  });
@@ -213,17 +218,34 @@ describe('Transición relacional PostgreSQL 17',()=>{
    const link=await call('/api/capture/links','POST',{source:'Facebook',companyCampaignId:'techcenter:bitel-portabilidad'},admin,'techcenter');
    expect(link.status).toBe(201);
    const pub=async(body?:any)=>{const r=await worker.fetch(new Request('https://worker.test/api/public/capture/'+link.data.id,{method:body?'POST':'GET',headers:{Origin:'http://localhost:3000','Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}),env);return {status:r.status,data:await r.json() as any}};
-   expect((await pub()).data.formId).toBe('techcenter-v1');
+   const config=(await pub()).data;
+   expect(config.formId).toBe('company-capture-v1');
+   expect(config.companyName).toBe('Techcenter');
+   expect(config.campaigns.every((c:any)=>c.id.startsWith('techcenter:'))).toBe(true);
+   expect(config.campaigns.some((c:any)=>c.name==='Internet Win')).toBe(false);
+   await db.exec('begin');
+   try {
+    await db.query("select set_config('talent.org_actor',$1,true)",[admin]);
+    await db.exec("update talent_org.company_campaigns set status='INACTIVA' where id='techcenter:bitel-migraciones'");
+    const hash=(await db.query('select token_hash from talent.capture_links where annotations->>\'publicToken\'=$1',[link.data.id])).rows[0].token_hash;
+    const catalog=(await db.query('select public.talent_capture_catalog($1) as data',[hash])).rows[0].data;
+    expect(catalog.campaigns.some((c:any)=>c.id==='techcenter:bitel-migraciones')).toBe(false);
+    await db.exec("update talent_org.global_campaigns set status='INACTIVA' where id='movistar-portabilidad'");
+    expect((await db.query('select public.talent_capture_catalog($1) as data',[hash])).rows[0].data.campaigns.some((c:any)=>c.id==='techcenter:movistar-portabilidad')).toBe(false);
+   } finally {await db.exec('rollback');}
+   const privileges=(await db.query("select has_function_privilege('anon','public.talent_capture_catalog(text)','EXECUTE') as anon, has_function_privilege('authenticated','public.talent_capture_catalog(text)','EXECUTE') as authenticated")).rows[0];
+   expect(privileges).toEqual({anon:false,authenticated:false});
    expect((await pub({fullName:'Incomplete',formId:'capture-v1'})).status).toBe(400);
    const answers=Object.fromEntries(techCenterSections.flatMap(s=>s.fields).filter(f=>f.options).map(f=>[f.key,optionValue(f.options![0])]));
-   const applicant={...answers,documentNumber:'99900999',fullName:'CI Techcenter',district:'Lima, Comas',phone:'912345679',email:'tech@example.test',experienceDetails:'Un año en ventas',adjustmentDetails:'Acceso sin escaleras',privacyAcknowledged:true,requestId:crypto.randomUUID(),turnstileToken:'test-only-token'};
+   const applicant={...answers,preferredCampaign:'techcenter:bitel-portabilidad',documentNumber:'99900999',fullName:'CI Techcenter',district:'Lima, Comas',phone:'912345679',email:'tech@example.test',experienceDetails:'Un año en ventas',adjustmentDetails:'Acceso sin escaleras',privacyAcknowledged:true,requestId:crypto.randomUUID(),turnstileToken:'test-only-token'};
+   expect((await pub({...applicant,preferredCampaign:'talent-up:bitel-portabilidad',companyId:'talent-up',companyName:'Otra empresa'})).status).toBe(400);
    expect((await pub(applicant)).status).toBe(201);
    expect((await pub(applicant)).status).toBe(201);
    const events=(await call('/api/capture/management','GET',undefined,admin,'techcenter')).data.events;
    const event=events.find((e:any)=>e.applicant.documentNumber==='99900999');
-   expect(event.applicant.techCenterAnswers).toMatchObject({preferredCampaign:'Retenciones Bitel',experienceDetails:'Un año en ventas',conadis:'Sí, deseo declararlo',adjustmentDetails:'Acceso sin escaleras'});
+   expect(event.applicant.techCenterAnswers).toMatchObject({preferredCampaign:'Portabilidad Bitel',preferredCampaignId:'techcenter:bitel-portabilidad',companyName:'Techcenter',experienceDetails:'Un año en ventas',conadis:'Sí, deseo declararlo',adjustmentDetails:'Acceso sin escaleras'});
    expect(event.applicant.techCenterAnswers.computer).toBeUndefined();
-   expect(event.privacyAcknowledgement.version).toBe('techcenter-v1');
+   expect(event.privacyAcknowledgement.version).toBe('company-capture-v1');
    expect(event.consent).toBeUndefined();
    expect(events.filter((e:any)=>e.applicant.documentNumber==='99900999')).toHaveLength(1);
    expect((await call('/api/capture/events/'+event.id,'PATCH',{status:'Contactado',note:'CI'},admin,'techcenter')).status).toBe(200);

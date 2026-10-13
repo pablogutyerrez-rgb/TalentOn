@@ -1,9 +1,9 @@
 import React from 'react';
-import { techCenterSections, optionLabel, optionValue } from '../../../shared/techCenterForm';
+import { companySections, optionLabel, optionValue, type CaptureCampaignOption } from '../../../shared/techCenterForm';
 
-export function TechCenterFields({ values, onChange }: { values: Record<string, string>; onChange: (key: string, value: string) => void }) {
+export function TechCenterFields({ values, onChange, companyName, campaigns }: { values: Record<string, string>; onChange: (key: string, value: string) => void; companyName:string; campaigns:CaptureCampaignOption[] }) {
   const control = 'mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-100';
-  return <>{techCenterSections.filter(section => !section.when || section.when(values)).map(section =>
+  return <>{companySections(companyName,campaigns).filter(section => !section.when || section.when(values)).map(section =>
     <fieldset key={section.title} className="space-y-5 border-t border-slate-200 pt-5">
       <legend className="px-1 text-sm font-bold text-[#143A56]">{section.title}</legend>
       {section.hint && <p className="text-sm italic text-slate-500">{section.hint}</p>}
