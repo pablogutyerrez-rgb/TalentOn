@@ -1,6 +1,8 @@
 FIREBASE_CLIENT_EMAIL=
 CAPTURE_HASH_SECRET=
 TURNSTILE_SECRET_KEY=
+# Clave pública del mismo widget; se entrega por GET del enlace, nunca el secret.
+TURNSTILE_SITE_KEY=
 SUPABASE_URL=
 SUPABASE_SECRET_KEY=
 # Alternativa legacy; usar preferentemente SUPABASE_SECRET_KEY.

@@ -119,7 +119,11 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
     if (!link || link.active !== true) throw new CaptureError('Este enlace no está disponible.', 404);
     const owner = await store.get(`users/${link.ownerUid}`);
     if (!owner || owner.enabled === false || owner.status !== 'ACTIVO' || !['ADMIN', 'RECLUTADOR'].includes(owner.role) || owner.companyId !== link.companyId || (owner.role !== 'ADMIN' && !(owner.allowedModules || owner.module || []).includes('SELECCION'))) throw new CaptureError('Este enlace no está disponible.', 404);
-    if (request.method === 'GET') return reply({ active: true, noticeVersion: 'capture-v1' });
+    if (request.method === 'GET') return reply({
+      active: true, noticeVersion: 'capture-v1',
+      turnstileSiteKey: env.TURNSTILE_SITE_KEY || '',
+      securityReady: Boolean(env.CAPTURE_HASH_SECRET && env.TURNSTILE_SECRET_KEY),
+    });
     const input = await body(request), applicant = captureInput(input);
     if (!/^[a-f0-9-]{36}$/.test(input.requestId || '')) throw new CaptureError('INVALID_REQUEST_ID');
     if (!env.CAPTURE_HASH_SECRET) throw new CaptureError('Captación pública pendiente de configuración.', 503);

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useTalent } from '../../context/TalentContext';
 import { LeadSourceType } from '../../types';
+import { workModalities, workSchedules, type CandidatePreferences } from '../../../shared/candidatePreferences';
 import { getWorkerErrorMessage } from '../../services/workerApi';
 
 interface CandidateCreateModalProps {
@@ -45,6 +46,8 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [district, setDistrict] = useState('Lima Centro');
+  const [workModality, setWorkModality] = useState<CandidatePreferences['workModality']>('');
+  const [workSchedule, setWorkSchedule] = useState<CandidatePreferences['workSchedule']>('');
   const [campaignId, setCampaignId] = useState(defaultCampaignId || scopedCampaigns[0]?.id || campaigns[0]?.id || '');
   const [recruiterId, setRecruiterId] = useState(currentUser.id);
   const [source, setSource] = useState<LeadSourceType>('Facebook Gratis');
@@ -57,7 +60,7 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (isOpen) setDuplicateWarning(null);
+    if (isOpen) { setDuplicateWarning(null); setCreatedCandidateId(null); }
     if (isOpen && defaultCampaignId) setCampaignId(defaultCampaignId);
     if (isOpen && currentUser.role === 'RECLUTADOR') setRecruiterId(currentUser.id);
   }, [isOpen, defaultCampaignId, currentUser.id, currentUser.role]);
@@ -123,6 +126,8 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
       phone: phone.trim(),
       city: `Lima - ${district}`,
       district: district,
+      workModality,
+      workSchedule,
       campaignId: targetCamp.id,
       campaignCode: targetCamp.code,
       campaignName: targetCamp.title,
@@ -190,6 +195,18 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
             </section>
 
             <section className="space-y-4 border-b border-slate-200 pb-5">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <label className={fieldLabelClass}>Modalidad
+                  <select value={workModality} onChange={e => setWorkModality(e.target.value as CandidatePreferences['workModality'])} className={inputClass}>
+                    <option value="">Sin especificar</option>{workModalities.map(value => <option key={value}>{value}</option>)}
+                  </select>
+                </label>
+                <label className={fieldLabelClass}>Horario / Jornada
+                  <select value={workSchedule} onChange={e => setWorkSchedule(e.target.value as CandidatePreferences['workSchedule'])} className={inputClass}>
+                    <option value="">Sin especificar</option>{workSchedules.map(value => <option key={value}>{value}</option>)}
+                  </select>
+                </label>
+              </div>
               <h4 className="flex items-center gap-2 text-sm font-bold text-[#143A56]"><Share2 className="h-5 w-5 text-blue-700" />2. Asignación</h4>
               <div className={`grid grid-cols-1 gap-x-5 gap-y-4 ${defaultCampaignId ? 'md:grid-cols-3' : 'md:grid-cols-2 xl:grid-cols-4'}`}>
                 {!defaultCampaignId && <div><label className={fieldLabelClass}>Convocatoria de destino <span className="text-rose-600">*</span></label><select required value={campaignId} onChange={e => setCampaignId(e.target.value)} className={`${inputClass} font-semibold`}>{campaigns.map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.title} ({campaign.company})</option>)}</select></div>}

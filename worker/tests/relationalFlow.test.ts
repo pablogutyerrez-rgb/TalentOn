@@ -75,9 +75,12 @@ describe('Transición relacional PostgreSQL 17',()=>{
   const edited=(await call('/api/bootstrap')).data.campaigns[0];expect(edited.salaryBase).toBe(0);expect(edited.title).toBe('CI editado');expect(edited.responsibles).toHaveLength(1);
  });
  it('crea candidato, datos personales y resultados de selección',async()=>{
-  const r=await call('/api/candidates','POST',{dni:'99900001',fullName:'CI Persona',campaignId,recruiterId:admin,campaignName:'CI editado',phone:'999000001',source:'Otro',applicationDate:new Date().toISOString().slice(0,10)});
+  const r=await call('/api/candidates','POST',{dni:'99900001',fullName:'CI Persona',campaignId,recruiterId:admin,campaignName:'CI editado',phone:'999000001',source:'Otro',workModality:'Remoto',workSchedule:'Semifull',applicationDate:new Date().toISOString().slice(0,10)});
   expect(r.status).toBe(201);personId=r.data.id;
-  expect((await call('/api/candidates/'+personId+'/personal-data','PATCH',{fullName:'CI Persona editada',phone:'999000002'})).status).toBe(200);
+  expect((await call('/api/bootstrap')).data.candidates[0]).toMatchObject({workModality:'Remoto',workSchedule:'Semifull'});
+  expect((await call('/api/candidates/'+personId+'/personal-data','PATCH',{fullName:'CI Persona editada',phone:'999000002',workModality:'Presencial',workSchedule:'Fulltime'})).status).toBe(200);
+  expect((await call('/api/candidates/'+personId+'/personal-data','PATCH',{workSchedule:'INVALIDO'})).status).toBe(400);
+  expect((await call('/api/bootstrap')).data.candidates[0]).toMatchObject({workModality:'Presencial',workSchedule:'Fulltime'});
   const r2=await call('/api/candidates/'+personId+'/selection-record','PATCH',{kind:'INTERVIEW',value:{status:'APTO',notes:'CI',date:new Date().toISOString().slice(0,10)}});
   expect(r2.status).toBe(200);
   const data=(await call('/api/bootstrap')).data.candidates[0];expect(data.fullName).toBe('CI Persona editada');expect(data.selection.interviewResult.status).toBe('APTO');

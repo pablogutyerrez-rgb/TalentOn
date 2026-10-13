@@ -482,6 +482,14 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
                       <span className="text-slate-500 block text-2xs font-semibold">Distrito / Ciudad</span>
                       <strong className="text-slate-900">{candidate.district || candidate.city}</strong>
                     </div>
+                    <div>
+                      <span className="text-slate-500 block text-2xs font-semibold">Modalidad</span>
+                      <strong className="text-slate-900">{candidate.workModality || 'Sin especificar'}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block text-2xs font-semibold">Horario / Jornada</span>
+                      <strong className="text-slate-900">{candidate.workSchedule || 'Sin especificar'}</strong>
+                    </div>
 
                     <div>
                       <span className="text-slate-500 block text-2xs font-semibold">Edad</span>

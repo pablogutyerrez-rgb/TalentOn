@@ -1,3 +1,5 @@
+import type { CandidatePreferences } from '../shared/candidatePreferences';
+
 export type UserRole = 
   | 'ADMIN'
   | 'JEFE_SELECCION' 
@@ -500,7 +502,7 @@ export interface CampaignCall {
   stagesConfig?: string[];
 }
 
-export interface CandidateRecord {
+export interface CandidateRecord extends CandidatePreferences {
   id: string; // Único en todo el ciclo de vida
   dni: string;
   fullName: string;

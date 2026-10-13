@@ -1,4 +1,5 @@
 import { handleCapture, CaptureError } from './capture';
+import { candidatePreferences } from './candidatePreferences';
 import { relationalSession, changeFirstPassword, type SessionProfile } from './supabaseSession';
 import { RelationalRuntime, type RuntimeEnv } from './relationalRuntime';
 import { relationalIdentity } from './supabaseIdentity';
@@ -10,6 +11,7 @@ export interface Env extends SupabaseEnv, RuntimeEnv {
   DATA_PROVIDER?: string;
   CAPTURE_HASH_SECRET?: string;
   TURNSTILE_SECRET_KEY?: string;
+  TURNSTILE_SITE_KEY?: string;
   FIREBASE_PROJECT_ID: string;
   FIREBASE_CLIENT_EMAIL: string;
   FIREBASE_PRIVATE_KEY: string;
@@ -290,7 +292,7 @@ async function createCandidate(request: Request, env: Env, actor: Profile) {
   }
   const traceability = [{ id: `TR-${crypto.randomUUID()}`, date, time, user: actor.displayName, previousStage: 'N/A', newStage: 'NUEVO', observation: 'Postulación registrada.' }];
   const allowedFields = ['fullName', 'firstName', 'lastName', 'email', 'phone', 'city', 'district', 'address', 'birthDate', 'age', 'campaignCode', 'campaignName', 'jobProfile', 'source', 'cvUrl', 'observationsGeneral'];
-  const safeInput: Record<string, unknown> = {};
+  const safeInput: Record<string, unknown> = { ...candidatePreferences(input) };
   for (const field of allowedFields) if (input[field] !== undefined) safeInput[field] = input[field];
   const data = { ...safeInput, id, dni, companyId: actor.companyId, campaignId, recruiterId, recruiterName, analystId: campaignData.assignedAnalystId ?? '', analystName: campaignData.assignedAnalystName ?? '', applicationDate: typeof input.applicationDate === 'string' ? input.applicationDate : date, currentProcess: 'SELECCION', currentStage: 'SELECCION', selection: { callId: campaignId, stage: 'NUEVO', status: 'ACTIVO', traceability, contactHistory: [], evaluations: [], evaluationsList: [] }, createdAt: now.toISOString(), createdBy: actor.uid };
   await firestore(env, `candidates/${id}`, 'PATCH', { fields: fields(data) }); return response(data, 201, cors(request, env));
@@ -334,6 +336,7 @@ async function updateCandidatePersonalData(request: Request, env: Env, actor: Pr
     if(!await candidateAllowedWithAssignment(env,actor,current))throw new Error('FORBIDDEN');
   } else current=await requireDocumentAccess(env,actor,id);
   const input = await request.json<Record<string, unknown>>(); const allowed = ['dni', 'fullName', 'firstName', 'lastName', 'email', 'phone', 'birthDate', 'age', 'city', 'district', 'address']; const patch: Record<string, unknown> = {};
+  Object.assign(patch, candidatePreferences(input));
   for (const field of allowed) if (input[field] !== undefined) patch[field] = input[field];
   if (!Object.keys(patch).length) throw new Error('INVALID_PERSONAL_DATA'); const newDni = typeof patch.dni === 'string' ? patch.dni.replace(/\D/g, '') : ''; if (newDni && newDni !== String(current.dni ?? '').replace(/\D/g, '')) { try { await candidate(env, `CAN-${newDni}`); throw new Error('DUPLICATE_CANDIDATE'); } catch (error) { if (!(error instanceof Error) || error.message !== 'FIRESTORE_404') throw error; } }
   const selection = isRecord(current.selection) ? current.selection : {}; const traceability = Array.isArray(selection.traceability) ? selection.traceability : []; const now = new Date().toISOString(); const trace = { id: `TR-${crypto.randomUUID()}`, date: now.slice(0, 10), time: now.slice(11, 16), user: actor.displayName, action: 'EDICION', previousStage: current.currentStage, newStage: current.currentStage, observation: 'Datos personales del expediente actualizados.' };

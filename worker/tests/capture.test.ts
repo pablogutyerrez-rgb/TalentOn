@@ -185,7 +185,15 @@ describe('Captación', () => {
     const result = await worker.fetch(new Request('https://worker.test/api/capture/links'), env); expect(result.status).toBe(401);
   });
   it('el formulario público no expone origen ni propietario', async () => {
-    const result = await call(`/api/public/capture/${linkId}`, 'GET', undefined, undefined); expect(await result!.json()).toEqual({ active: true, noticeVersion: 'capture-v1' });
+    const result = await call(`/api/public/capture/${linkId}`, 'GET', undefined, undefined); expect(await result!.json()).toEqual({ active: true, noticeVersion: 'capture-v1', turnstileSiteKey: '', securityReady: true });
+  });
+  it('informa preparación y clave pública sin exponer secretos', async () => {
+    const request = new Request(`https://worker.test/api/public/capture/${linkId}`);
+    const result = await handleCapture(request, { ...env, TURNSTILE_SITE_KEY: 'public-widget-key' }, undefined, helpers);
+    expect(await result!.json()).toEqual({ active: true, noticeVersion: 'capture-v1', turnstileSiteKey: 'public-widget-key', securityReady: true });
+    const missing = await handleCapture(request, { ...env, TURNSTILE_SITE_KEY: 'public-widget-key', TURNSTILE_SECRET_KEY: undefined }, undefined, helpers);
+    expect(await missing!.json()).toMatchObject({ securityReady: false });
+    expect(writes).toHaveLength(0);
   });
   it('registra captación, expediente canónico y consentimiento atómicamente, sin campaña', async () => {
     const result = await call(`/api/public/capture/${linkId}`, 'POST', { ...applicant, requestId: crypto.randomUUID(), turnstileToken: 'token', ownerUid: 'attacker', source: 'Other' }, undefined);
