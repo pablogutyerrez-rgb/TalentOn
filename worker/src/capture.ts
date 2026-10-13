@@ -1,4 +1,5 @@
 import type { Env } from './index';
+import { TECH_CENTER_FORM, validateTechCenterAnswers } from '../../shared/techCenterForm';
 
 export type Data = Record<string, any>;
 type Actor = { uid: string; role: string; companyId: string; allowedModules: string[]; subordinateUserIds?: string[] };
@@ -9,14 +10,20 @@ export class CaptureError extends Error { constructor(message: string, public st
 const text = (v: unknown, max: number) => typeof v === 'string' ? v.normalize('NFKC').trim().replace(/\s+/g, ' ').slice(0, max) : '';
 const digits = (v: unknown) => text(v, 40).replace(/\D/g, '');
 const phone = (v: unknown) => { const n = digits(v); return n.length === 11 && n.startsWith('51') ? n.slice(2) : n; };
-export function captureInput(v: Data) {
+export function captureInput(v: Data, techCenter = false) {
+  let techCenterAnswers: Record<string, string> | undefined;
+  if (techCenter) {
+    try { techCenterAnswers = validateTechCenterAnswers(v); }
+    catch (error) { throw new CaptureError((error as Error).message); }
+    if (v.privacyAcknowledged !== true) throw new CaptureError('Confirma que has leído la información sobre el tratamiento de tus datos personales.');
+  }
   const fullName = text(v.fullName, 120), documentType = text(v.documentType, 20);
   const documentNumber = text(v.documentNumber, 24).toUpperCase().replace(/[\s-]/g, '');
-  const normalizedPhone = phone(v.phone), email = text(v.email, 160).toLowerCase(), district = text(v.district, 80);
-  if (fullName.length < 5 || !fullName.includes(' ') || !['DNI', 'CE', 'PASAPORTE'].includes(documentType) ||
+  const normalizedPhone = phone(v.phone), email = text(v.email, 160).toLowerCase(), district = text(v.district, techCenter ? 160 : 80);
+  if (fullName.length < 5 || !fullName.includes(' ') || !(techCenter ? ['DNI', 'CE', 'OTRO'] : ['DNI', 'CE', 'PASAPORTE']).includes(documentType) ||
     !(documentType === 'DNI' ? /^\d{8}$/.test(documentNumber) : /^[A-Z0-9]{6,20}$/.test(documentNumber)) ||
-    !/^9\d{8}$/.test(normalizedPhone) || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) || district.length < 2 || v.consent !== true || v.website) throw new CaptureError('Revisa tus datos y acepta el aviso de privacidad.');
-  return { fullName, documentType, documentNumber, phone: normalizedPhone, email, district };
+    !/^9\d{8}$/.test(normalizedPhone) || (techCenter && !email) || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) || district.length < 2 || (!techCenter && v.consent !== true) || v.website) throw new CaptureError('Revisa tus datos y la declaración de privacidad.');
+  return { fullName, documentType, documentNumber, phone: normalizedPhone, email, district, ...(techCenterAnswers ? { techCenterAnswers } : {}) };
 }
 function allowed(actor: Actor) {
   if (actor.role !== 'ADMIN' && (!['RECLUTADOR', 'ANALISTA_SELECCION'].includes(actor.role) || !actor.allowedModules.includes('SELECCION'))) throw new CaptureError('FORBIDDEN', 403);
@@ -119,12 +126,15 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
     if (!link || link.active !== true) throw new CaptureError('Este enlace no está disponible.', 404);
     const owner = await store.get(`users/${link.ownerUid}`);
     if (!owner || owner.enabled === false || owner.status !== 'ACTIVO' || !['ADMIN', 'RECLUTADOR'].includes(owner.role) || owner.companyId !== link.companyId || (owner.role !== 'ADMIN' && !(owner.allowedModules || owner.module || []).includes('SELECCION'))) throw new CaptureError('Este enlace no está disponible.', 404);
+    // Determine the form from the stored company, never from a client-supplied ID.
+    const techCenter = link.companyId === 'techcenter';
     if (request.method === 'GET') return reply({
       active: true, noticeVersion: 'capture-v1',
       turnstileSiteKey: env.TURNSTILE_SITE_KEY || '',
       securityReady: Boolean(env.CAPTURE_HASH_SECRET && env.TURNSTILE_SECRET_KEY),
+      ...(techCenter ? { formId: TECH_CENTER_FORM, noticeVersion: TECH_CENTER_FORM } : {}),
     });
-    const input = await body(request), applicant = captureInput(input);
+    const input = await body(request), applicant = captureInput(input, techCenter);
     if (!/^[a-f0-9-]{36}$/.test(input.requestId || '')) throw new CaptureError('INVALID_REQUEST_ID');
     if (!env.CAPTURE_HASH_SECRET) throw new CaptureError('Captación pública pendiente de configuración.', 503);
     const requestKey = await digest(env.CAPTURE_HASH_SECRET!, `request:${pub[1]}:${input.requestId}`);
@@ -151,7 +161,10 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
       const matched = matchIdentity(applicant, candidates);
       const candidateId = identity?.candidateId || matched.candidateId || `CAP-${crypto.randomUUID()}`;
       const eventId = crypto.randomUUID(), conflict = matched.conflict;
-      const event = { id: eventId, candidateId, linkId: pub[1], companyId: link.companyId, ownerUid: link.ownerUid, source: link.source, createdAt: now, status: 'Nuevo', applicant, conflict, possibleIds: matched.possibleIds, consent: { accepted: true, version: 'capture-v1', acceptedAt: now }, history: [{ at: now, actorUid: 'PUBLIC', action: 'Registro', status: 'Nuevo', note: '' }] };
+      const privacy = techCenter
+        ? { privacyAcknowledgement: { acknowledged: true, version: TECH_CENTER_FORM, acknowledgedAt: now } }
+        : { consent: { accepted: true, version: 'capture-v1', acceptedAt: now } };
+      const event = { id: eventId, candidateId, linkId: pub[1], companyId: link.companyId, ownerUid: link.ownerUid, source: link.source, createdAt: now, status: 'Nuevo', applicant, conflict, possibleIds: matched.possibleIds, ...privacy, history: [{ at: now, actorUid: 'PUBLIC', action: 'Registro', status: 'Nuevo', note: '' }] };
       const writes: { path: string; data: Data; create?: boolean }[] = [
         { path: `captations/${eventId}`, data: event, create: true },
         { path: `captureRequests/${requestKey}`, data: { fingerprint, createdAt: now }, create: true },

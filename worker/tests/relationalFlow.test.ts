@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {PGlite} from '@electric-sql/pglite';
 import worker,{type Env} from '../src/index';
 import {RelationalRuntime} from '../src/relationalRuntime';
+import {techCenterSections,optionValue} from '../../shared/techCenterForm';
 const admin='40000000-0000-4000-8000-000000000001';
 const trainer='40000000-0000-4000-8000-000000000002';
 const other='40000000-0000-4000-8000-000000000003';
@@ -205,6 +206,31 @@ describe('Transición relacional PostgreSQL 17',()=>{
    expect((await call('/api/org/memberships','POST',{companyId:'talent-up',userId:trainer,role:'FORMADOR',enabled:false,allCampaigns:false,scopes:[],version:membership.data.version},admin)).status).toBe(200);
    expect((await call('/api/bootstrap','GET',undefined,trainer,'talent-up')).status).toBe(403);
   }finally{env.ORG_ENABLED=undefined;}
+ });
+ it('TECH CENTER: formulario por empresa, guardado real y lectura de respuestas sin consentimiento inventado',async()=>{
+  env.ORG_ENABLED='true';
+  try {
+   const link=await call('/api/capture/links','POST',{source:'Facebook',companyCampaignId:'techcenter:bitel-portabilidad'},admin,'techcenter');
+   expect(link.status).toBe(201);
+   const pub=async(body?:any)=>{const r=await worker.fetch(new Request('https://worker.test/api/public/capture/'+link.data.id,{method:body?'POST':'GET',headers:{Origin:'http://localhost:3000','Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}),env);return {status:r.status,data:await r.json() as any}};
+   expect((await pub()).data.formId).toBe('techcenter-v1');
+   expect((await pub({fullName:'Incomplete',formId:'capture-v1'})).status).toBe(400);
+   const answers=Object.fromEntries(techCenterSections.flatMap(s=>s.fields).filter(f=>f.options).map(f=>[f.key,optionValue(f.options![0])]));
+   const applicant={...answers,documentNumber:'99900999',fullName:'CI Techcenter',district:'Lima, Comas',phone:'912345679',email:'tech@example.test',experienceDetails:'Un año en ventas',adjustmentDetails:'Acceso sin escaleras',privacyAcknowledged:true,requestId:crypto.randomUUID(),turnstileToken:'test-only-token'};
+   expect((await pub(applicant)).status).toBe(201);
+   expect((await pub(applicant)).status).toBe(201);
+   const events=(await call('/api/capture/management','GET',undefined,admin,'techcenter')).data.events;
+   const event=events.find((e:any)=>e.applicant.documentNumber==='99900999');
+   expect(event.applicant.techCenterAnswers).toMatchObject({preferredCampaign:'Retenciones Bitel',experienceDetails:'Un año en ventas',conadis:'Sí, deseo declararlo',adjustmentDetails:'Acceso sin escaleras'});
+   expect(event.applicant.techCenterAnswers.computer).toBeUndefined();
+   expect(event.privacyAcknowledgement.version).toBe('techcenter-v1');
+   expect(event.consent).toBeUndefined();
+   expect(events.filter((e:any)=>e.applicant.documentNumber==='99900999')).toHaveLength(1);
+   expect((await call('/api/capture/events/'+event.id,'PATCH',{status:'Contactado',note:'CI'},admin,'techcenter')).status).toBe(200);
+   const dossier=(await call('/api/capture/candidates/'+event.candidateId,'GET',undefined,admin,'techcenter')).data;
+   expect(dossier.events[0].applicant.techCenterAnswers.experienceDetails).toBe('Un año en ventas');
+   expect((await call('/api/capture/candidates/'+event.candidateId,'GET',undefined,other)).status).not.toBe(200);
+  } finally {env.ORG_ENABLED=undefined;}
  });
  it('creación y edición global guarda accesos de dos empresas con rollback y CAS',async()=>{
   env.ORG_ENABLED='true';

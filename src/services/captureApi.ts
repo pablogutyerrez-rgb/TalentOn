@@ -1,7 +1,7 @@
 import { workerApi } from './workerApi';
 export const captureSources = ['Facebook', 'TikTok', 'LinkedIn', 'WhatsApp', 'Referidos', 'Otros'];
 export const captureStates = ['Nuevo', 'Contactado', 'No responde', 'Interesado', 'No interesado'];
-export interface CaptureApplicant { fullName: string; phone: string; email: string; documentType: string; documentNumber: string; district: string }
+export interface CaptureApplicant { fullName: string; phone: string; email: string; documentType: string; documentNumber: string; district: string; techCenterAnswers?: Record<string, string> }
 export interface CaptureLink { id: string; source: string; ownerUid: string; companyId: string; active: boolean; createdAt: string }
 export interface CaptureEvent { id: string; candidateId: string; ownerUid: string; source: string; status: string; createdAt: string; conflict: boolean; applicant: CaptureApplicant; history: { at: string; actorUid: string; action: string; status: string; note: string }[]; possibleIds?: string[] }
 export interface CaptureDossier { candidate: CaptureApplicant & { id: string }; events: CaptureEvent[] }
