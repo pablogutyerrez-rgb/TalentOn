@@ -1,5 +1,6 @@
 import {supabaseServerHeaders,SupabaseError,type SupabaseEnv} from './supabase';
 import type {SessionProfile} from './supabaseSession';
+import {validateCaptureCampaignConfig} from '../../shared/captureCampaignConfig';
 export async function organizationUserHome(env:SupabaseEnv,actor:SessionProfile,userId:string):Promise<string>{
  const r=await fetch(env.SUPABASE_URL!.replace(/\/$/,'')+'/rest/v1/rpc/talent_org_user_home',{method:'POST',headers:supabaseServerHeaders(env),body:JSON.stringify({p_actor:actor.authUserId,p_user:userId})});
  if(!r.ok)throw new SupabaseError(403,'FORBIDDEN');return r.json<string>();
@@ -11,6 +12,10 @@ export async function organizationUserGuard(env:SupabaseEnv,actor:SessionProfile
 export async function organizationRequest(request:Request,env:SupabaseEnv,actor:SessionProfile){
  const path=new URL(request.url).pathname;let name:string;let body:Record<string,unknown>={p_actor:actor.authUserId};
  if(path==='/api/org'&&request.method==='GET')name='talent_org_directory';
+ else if(path==='/api/org/capture-settings'&&request.method==='GET'){
+  if(!actor.globalAdmin)throw new SupabaseError(403,'FORBIDDEN');
+  name='talent_org_capture_settings';
+ }
  else if(path==='/api/org/users'&&request.method==='GET')name='talent_org_users';
  else if(path==='/api/org/dashboard'&&request.method==='POST'){
   name='talent_org_dashboard';const input=await request.json<Record<string,unknown>>();body={...body,p_company:input.companyId||null,p_campaign:input.campaignId||null,p_from:input.from||null,p_to:input.to||null};
@@ -20,7 +25,11 @@ export async function organizationRequest(request:Request,env:SupabaseEnv,actor:
  }else{
   if(!actor.globalAdmin)throw new SupabaseError(403,'FORBIDDEN');
   const input=await request.json<Record<string,unknown>>();
-  if(path==='/api/org/catalog'&&request.method==='POST'){
+  if(path==='/api/org/capture-settings'&&request.method==='POST'){
+   let configuration;
+   try {configuration=validateCaptureCampaignConfig(input.configuration);}catch{throw new SupabaseError(400,'ORG_VALIDATION_FAILED');}
+   name='talent_org_capture_settings_save';body={...body,p_company:input.companyId,p_id:input.id,p_expected:input.version??null,p_configuration:configuration};
+  }else if(path==='/api/org/catalog'&&request.method==='POST'){
    name='talent_org_catalog_save';body={...body,p_company:input.companyId||null,p_id:input.id,p_name:input.name||null,p_global_campaign:input.globalCampaignId||null,p_expected:input.version??null,p_configuration:input.configuration||{}};
   }else if(path==='/api/org/companies'&&request.method==='POST'){
    name='talent_org_company_save';body={...body,p_id:input.id,p_name:input.name,p_legal:input.legalName||null,p_tax:input.taxId||null,p_expected:input.version??null};

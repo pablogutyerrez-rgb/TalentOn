@@ -12,7 +12,8 @@ const trainer='40000000-0000-4000-8000-000000000002';
 const other='40000000-0000-4000-8000-000000000003';
 let db:any,campaignId:string,personId:string,groupId:string;
 const objects=new Map<string,Uint8Array>();
-const registrationAnswers={adult:'Sí',contactCenterExperience:'No',workedAtTechCenter:'No',education:'Secundaria completa',workday:'Medio tiempo',availability:'Tarde',commitments:'No',modality:'Presencial',privacyAcknowledged:true};
+const registrationAnswers={age:'25',contactCenterExperience:'No',workedAtTechCenter:'No',education:'Secundaria completa',workday:'Full time',availability:'Tarde',commitments:'No',modality:'Presencial',privacyAcknowledged:true};
+const captureConfiguration={minAge:18,maxAge:null,workdays:['Full time','Semi full'],schedules:['Tarde'],modality:'Presencial'};
 const authUsers=new Map<string,any>();
 const env={DATA_PROVIDER:'supabase',SUPABASE_URL:'https://sql-test.supabase.co',SUPABASE_SECRET_KEY:'sb_secret_test',ALLOWED_ORIGIN:'http://localhost:3000',PRODUCTION_ORIGIN:'https://example.test',MAX_UPLOAD_BYTES:'10485760',ATTENDANCE_TIME_ZONE_OFFSET:'-05:00',CAPTURE_HASH_SECRET:'test-only-key',DOCUMENTS:{put:async(k:string,v:any)=>{objects.set(k,new Uint8Array(await new Response(v).arrayBuffer()))},get:async(k:string)=>objects.has(k)?{body:objects.get(k),httpMetadata:{contentType:'application/pdf'}}:null,delete:async(k:string)=>{objects.delete(k)}}} as unknown as Env;
 async function call(path:string,method='GET',body?:any,actor=admin,company?:string){
@@ -174,7 +175,20 @@ describe('Transición relacional PostgreSQL 17',()=>{
   const info=await publicRequest();expect(info.status).toBe(200);expect(info.data.ownerUid).toBeUndefined();expect(info.data.source).toBeUndefined();
   expect(info.data.formId).toBe('company-capture-v1');
   expect(info.data.companyName).toBe('CI');
-  expect(info.data.campaigns).toEqual([{id:campaignId,name:'Ganador'}]);
+  expect(info.data.campaigns).toEqual([{id:campaignId,name:'Ganador',configuration:null}]);
+  await db.exec(`insert into talent_org.global_admins(id,auth_user_id) values('ci-global','${admin}')`);
+  env.ORG_ENABLED='true';
+  try {
+   const saved=await call('/api/org/capture-settings','POST',{companyId:'tenant',id:campaignId,version:null,configuration:captureConfiguration});
+   expect(saved.status).toBe(200);expect(saved.data.version).toBe(1);
+   expect((await call('/api/org/capture-settings','POST',{companyId:'tenant',id:campaignId,version:null,configuration:captureConfiguration})).status).toBe(409);
+   expect((await call('/api/org/capture-settings','GET',undefined,trainer)).status).toBe(403);
+   expect((await call('/api/org/capture-settings','POST',{companyId:'other',id:campaignId,configuration:captureConfiguration})).status).toBe(403);
+   expect((await call('/api/org/capture-settings','POST',{companyId:'tenant',id:campaignId,version:1,configuration:{...captureConfiguration,workdays:['Inventado']}})).status).toBe(400);
+   expect((await call('/api/org/capture-settings')).data.find((c:any)=>c.companyId==='tenant'&&c.id===campaignId)).toMatchObject({configuration:captureConfiguration,version:1});
+   const audit=(await db.query("select actor_auth_id from talent_org.audit_events where table_name='capture_settings' and entity_id=$1",[campaignId])).rows;
+   expect(audit).toEqual([{actor_auth_id:admin}]);
+  } finally {env.ORG_ENABLED=undefined;}
   const applicant={...registrationAnswers,preferredCampaign:campaignId,requestId:crypto.randomUUID(),fullName:'CI Captado',phone:'912345678',email:'fixture@example.test',documentType:'DNI',documentNumber:'99900003',district:'Lima',turnstileToken:'test-token'};
   expect((await publicRequest(applicant)).status).toBe(201);expect((await publicRequest(applicant)).status).toBe(201);
   const manager=await call('/api/capture/management');expect(manager.status).toBe(200);expect(manager.data.events).toHaveLength(1);expect(manager.data.events[0].applicant.fullName).toBe('CI Captado');
@@ -189,8 +203,29 @@ describe('Transición relacional PostgreSQL 17',()=>{
   const linked=await call('/api/selection/link','POST',{eventId:event.id,campaignId,templateId:template.data.id});expect(linked.status).toBe(201);
   const history=await call('/api/selection/candidates/'+event.candidateId);expect(history.data.applications).toHaveLength(1);
  });
+ it('configuración de captación: actualización versionada, validación SQL y acceso solo desde servidor',async()=>{
+  env.ORG_ENABLED='true';
+  try {
+   const configuration={...captureConfiguration,maxAge:65,workdays:['Part time'],schedules:['09:00–13:00'],modality:'Remota'};
+   const saved=await call('/api/org/capture-settings','POST',{companyId:'tenant',id:campaignId,version:1,configuration});
+   expect(saved.status).toBe(200);expect(saved.data.version).toBe(2);
+   expect((await call('/api/org/capture-settings','POST',{companyId:'tenant',id:campaignId,version:1,configuration})).status).toBe(409);
+   const hash=(await db.query("select token_hash from talent.capture_links where company_id='tenant' limit 1")).rows[0].token_hash;
+   const catalog=(await db.query('select public.talent_capture_catalog($1) as data',[hash])).rows[0].data;
+   expect(catalog.campaigns[0].configuration).toEqual(configuration);
+   expect(catalog.campaigns[0]).not.toHaveProperty('version');
+   for(const invalid of [{...configuration,modality:null},{...configuration,minAge:70,maxAge:60},{...configuration,schedules:['']},{...configuration,workdays:['Otro']},{...configuration,internalSecret:'not-public'}])
+    await expect(db.query('select public.talent_org_capture_settings_save($1,$2,$3,$4,$5::jsonb)',[admin,'tenant',campaignId,2,JSON.stringify(invalid)])).rejects.toThrow();
+   await expect(db.query('select public.talent_org_capture_settings($1)',[trainer])).rejects.toThrow();
+   const permissions=(await db.query("select has_function_privilege('anon','public.talent_org_capture_settings(uuid)','EXECUTE') as anon, has_function_privilege('authenticated','public.talent_org_capture_settings_save(uuid,text,text,bigint,jsonb)','EXECUTE') as authenticated,has_table_privilege('service_role','talent_org.capture_settings','UPDATE') as direct_write")).rows[0];
+   expect(permissions).toEqual({anon:false,authenticated:false,direct_write:false});
+   // Existing application answers retain the originally submitted workday and modality.
+   const event=(await call('/api/capture/management')).data.events[0];
+   expect(event.applicant.techCenterAnswers).toMatchObject({workday:'Full time',modality:'Presencial'});
+  } finally {env.ORG_ENABLED=undefined;}
+ });
  it('runtime multiempresa: cambio de contexto, creación, aislamiento y revocación',async()=>{
-  await db.exec(`insert into talent_org.global_admins(id,auth_user_id) values('ci-global','${admin}')`);
+  await db.exec(`insert into talent_org.global_admins(id,auth_user_id) values('ci-global','${admin}') on conflict do nothing`);
   for(const c of ['talent-up','techcenter'])await db.query('select public.talent_org_member_save($1,$1,$2,$3,true,true,$4,null)',[admin,c,'ADMIN','{}']);
   env.ORG_ENABLED='true';
   env.IDENTITY_HASH_SECRET='CI-isolated-only-identity-secret';
@@ -218,6 +253,7 @@ describe('Transición relacional PostgreSQL 17',()=>{
    const link=await call('/api/capture/links','POST',{source:'Facebook',companyCampaignId:'techcenter:bitel-portabilidad'},admin,'techcenter');
    expect(link.status).toBe(201);
    const pub=async(body?:any)=>{const r=await worker.fetch(new Request('https://worker.test/api/public/capture/'+link.data.id,{method:body?'POST':'GET',headers:{Origin:'http://localhost:3000','Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}),env);return {status:r.status,data:await r.json() as any}};
+   expect((await call('/api/org/capture-settings','POST',{companyId:'techcenter',id:'techcenter:bitel-portabilidad',version:null,configuration:captureConfiguration})).status).toBe(200);
    const config=(await pub()).data;
    expect(config.formId).toBe('company-capture-v1');
    expect(config.companyName).toBe('Techcenter');
@@ -237,13 +273,13 @@ describe('Transición relacional PostgreSQL 17',()=>{
    expect(privileges).toEqual({anon:false,authenticated:false});
    expect((await pub({fullName:'Incomplete',formId:'capture-v1'})).status).toBe(400);
    const answers=Object.fromEntries(techCenterSections.flatMap(s=>s.fields).filter(f=>f.options).map(f=>[f.key,optionValue(f.options![0])]));
-   const applicant={...answers,preferredCampaign:'techcenter:bitel-portabilidad',documentNumber:'99900999',fullName:'CI Techcenter',district:'Lima, Comas',phone:'912345679',email:'tech@example.test',experienceDetails:'Un año en ventas',adjustmentDetails:'Acceso sin escaleras',privacyAcknowledged:true,requestId:crypto.randomUUID(),turnstileToken:'test-only-token'};
+   const applicant={...answers,age:'25',experienceMonths:'12',availability:'Tarde',preferredCampaign:'techcenter:bitel-portabilidad',documentNumber:'99900999',fullName:'CI Techcenter',district:'Lima, Comas',phone:'912345679',email:'tech@example.test',experienceDetails:'Un año en ventas',adjustmentDetails:'Acceso sin escaleras',privacyAcknowledged:true,requestId:crypto.randomUUID(),turnstileToken:'test-only-token'};
    expect((await pub({...applicant,preferredCampaign:'talent-up:bitel-portabilidad',companyId:'talent-up',companyName:'Otra empresa'})).status).toBe(400);
    expect((await pub(applicant)).status).toBe(201);
    expect((await pub(applicant)).status).toBe(201);
    const events=(await call('/api/capture/management','GET',undefined,admin,'techcenter')).data.events;
    const event=events.find((e:any)=>e.applicant.documentNumber==='99900999');
-   expect(event.applicant.techCenterAnswers).toMatchObject({preferredCampaign:'Portabilidad Bitel',preferredCampaignId:'techcenter:bitel-portabilidad',companyName:'Techcenter',experienceDetails:'Un año en ventas',conadis:'Sí, deseo declararlo',adjustmentDetails:'Acceso sin escaleras'});
+   expect(event.applicant.techCenterAnswers).toMatchObject({preferredCampaign:'Portabilidad Bitel',preferredCampaignId:'techcenter:bitel-portabilidad',companyName:'Techcenter',experienceDetails:'Un año en ventas',experienceMonths:'12',age:'25',conadis:'Sí',adjustmentDetails:'Acceso sin escaleras'});
    expect(event.applicant.techCenterAnswers.computer).toBeUndefined();
    expect(event.privacyAcknowledgement.version).toBe('company-capture-v1');
    expect(event.consent).toBeUndefined();

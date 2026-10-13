@@ -1,17 +1,20 @@
 import {describe,it,expect} from 'vitest';
 import {captureInput} from '../src/capture';
 import {techCenterSections,visibleTechCenterFields,companySections,companyText} from '../../shared/techCenterForm';
+import {changeCaptureAnswer} from '../../shared/techCenterForm';
+import {validateCaptureCampaignConfig, type CaptureCampaignConfig} from '../../shared/captureCampaignConfig';
+const config:CaptureCampaignConfig={minAge:18,maxAge:60,workdays:['Full time','Semi full'],schedules:['Tarde'],modality:'Presencial'};
 
 export const techApplicant = {
  documentType:'DNI',documentNumber:'99900123',fullName:'Postulante de Prueba',
- adult:'Sí',district:'Lima, Comas',phone:'912345678',email:'fixture@example.test',
+ age:'25',district:'Lima, Comas',phone:'912345678',email:'fixture@example.test',
  contactCenterExperience:'No',workedAtTechCenter:'No',education:'Secundaria completa',
- preferredCampaign:'Migraciones Bitel',workday:'Jornada reducida',availability:'Tarde',
+ preferredCampaign:'Migraciones Bitel',workday:'Semi full',availability:'Tarde',
  commitments:'No',modality:'Presencial',privacyAcknowledged:true,
 };
 describe('Formulario TECH CENTER',()=>{
  it('misma estructura, textos por empresa y catálogo exclusivo del servidor',()=>{
-  const campaigns=[{id:'company-a:campaign-1',name:'Campaña de empresa A'}];
+  const campaigns=[{id:'company-a:campaign-1',name:'Campaña de empresa A',configuration:config}];
   const sections=companySections('Empresa A',campaigns);
   expect(sections.flatMap(s=>s.fields).filter(f=>/^\d+\./.test(f.label))).toHaveLength(22);
   expect(sections.flatMap(s=>s.fields).find(f=>f.key==='workedAtTechCenter')?.label).toContain('Empresa A');
@@ -42,12 +45,40 @@ describe('Formulario TECH CENTER',()=>{
   expect(captureInput({...techApplicant,computer:'Sí',adjustmentDetails:'Oculto'},true).techCenterAnswers).not.toHaveProperty('computer');
   expect(captureInput({...techApplicant,adjustmentDetails:'Oculto'},true).techCenterAnswers).not.toHaveProperty('adjustmentDetails');
  });
- it('incluye herramientas para remota y ambas; inclusión es voluntaria y no determina aptitud',()=>{
-  for(const modality of ['Remota','Ambas modalidades']){
-   const result=captureInput({...techApplicant,modality,computer:'No',usbHeadset:'Sí',internet:'Sí, inalámbrica',adult:'No',conadis:'Sí, deseo declararlo',adjustments:'Sí',adjustmentDetails:'Acceso sin escaleras'},true);
-   expect(result.techCenterAnswers).toMatchObject({computer:'No',adult:'No',adjustmentDetails:'Acceso sin escaleras'});
+ it('incluye herramientas solo para remota; inclusión es voluntaria y no determina aptitud',()=>{
+  for(const modality of ['Remota']){
+   const result=captureInput({...techApplicant,modality,computer:'No',usbHeadset:'Sí',internet:'Sí, inalámbrica',conadis:'Sí',adjustments:'Sí',adjustmentDetails:'Acceso sin escaleras'},true);
+   expect(result.techCenterAnswers).toMatchObject({computer:'No',age:'25',adjustmentDetails:'Acceso sin escaleras'});
    expect(result).not.toHaveProperty('status');
   }
+ });
+ it('valida edad, jornada, horarios y modalidad del catálogo; no acepta configuración del navegador',()=>{
+  const campaigns=[{id:'a',name:'A',configuration:config}];
+  const values={...techApplicant,preferredCampaign:'a'};
+  for(const override of [{age:'17'},{age:'61'},{age:'25.5'},{workday:'Part time'},{availability:'Mañana'},{modality:'Remota'},{modality:'Ambas modalidades'}])
+   expect(()=>captureInput({...values,...override,configuration:{...config,workdays:['Part time']}},true,campaigns)).toThrow();
+  for(const age of ['18','60'])expect(()=>captureInput({...values,age},true,campaigns)).not.toThrow();
+  expect(()=>captureInput(values,true,[{id:'a',name:'A'}])).toThrow();
+  expect(()=>captureInput({...values,age:'90'},true,[{...campaigns[0],configuration:{...config,maxAge:null}}])).not.toThrow();
+ });
+ it('limpia respuestas al cambiar de campaña; equipos se muestran por configuración, no por valor manipulado',()=>{
+  const campaigns=[{id:'a',name:'A',configuration:config},{id:'b',name:'B',configuration:{...config,modality:'Remota' as const}}];
+  const {privacyAcknowledged,...formValues}=techApplicant;
+  const next=changeCaptureAnswer({...formValues,computer:'Sí'},'preferredCampaign','b',campaigns);
+  expect(next).toMatchObject({modality:'Remota',preferredCampaign:'b',fullName:techApplicant.fullName});
+  expect(next).not.toHaveProperty('workday');expect(next).not.toHaveProperty('computer');
+  expect(visibleTechCenterFields({...next,modality:'Presencial'},campaigns).some(f=>f.key==='computer')).toBe(true);
+  expect(visibleTechCenterFields({...next,preferredCampaign:'a',modality:'Remota'},campaigns).some(f=>f.key==='computer')).toBe(false);
+ });
+ it('experiencia afirmativa exige meses y campañas; CONADIS es opcional Sí/No',()=>{
+  for(const experienceMonths of ['', '0','-1','1.5'])
+   expect(()=>captureInput({...techApplicant,contactCenterExperience:'Sí',experienceDetails:'Ventas',experienceMonths},true)).toThrow();
+  expect(captureInput({...techApplicant,contactCenterExperience:'Sí',experienceDetails:'Ventas',experienceMonths:'12',conadis:'No'},true).techCenterAnswers).toMatchObject({experienceMonths:'12',experienceDetails:'Ventas',conadis:'No'});
+ });
+ it('valida configuración administrativa sin valores por defecto',()=>{
+  expect(validateCaptureCampaignConfig(config)).toEqual(config);
+  for(const invalid of [{},{...config,minAge:60,maxAge:18},{...config,workdays:[]},{...config,schedules:[]},{...config,schedules:['Tarde','Tarde']},{...config,modality:'Ambas modalidades'},{...config,minAge:18.5},{...config,workdays:['Full time','Full time']}])
+   expect(()=>validateCaptureCampaignConfig(invalid)).toThrow();
  });
  it('rechaza opciones inventadas y texto excesivo; no cambia el formulario genérico',()=>{
   for(const field of visibleTechCenterFields(techApplicant).filter(f=>f.options))

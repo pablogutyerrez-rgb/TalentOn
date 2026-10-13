@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { publicCaptureApi } from '../services/captureApi';
 import { TechCenterFields } from '../components/capture/TechCenterFields';
-import { COMPANY_CAPTURE_FORM, companyText, type CaptureCampaignOption, techCenterIntro, techCenterPrivacy, techCenterPrivacyNote } from '../../shared/techCenterForm';
+import { COMPANY_CAPTURE_FORM, companyText, changeCaptureAnswer, selectedCaptureConfig, type CaptureCampaignOption, techCenterIntro, techCenterPrivacy, techCenterPrivacyNote } from '../../shared/techCenterForm';
 type Turnstile = { render: (el: HTMLElement, options: object) => string; remove: (id: string) => void; reset: (id: string) => void };
 export function PublicCaptureView({ token }: { token: string }) {
   const [active, setActive] = useState(false), [error, setError] = useState(''), [success, setSuccess] = useState(false), [busy, setBusy] = useState(false);
@@ -12,6 +12,7 @@ export function PublicCaptureView({ token }: { token: string }) {
   const [techAnswers, setTechAnswers] = useState<Record<string, string>>({});
   const [companyName, setCompanyName] = useState('');
   const [campaigns, setCampaigns] = useState<CaptureCampaignOption[]>([]);
+  const selectedConfig = selectedCaptureConfig(techAnswers,campaigns);
   useEffect(() => {
     let cancelled = false;
     setActive(false); setChallenge(''); setError(''); setSuccess(false); setSitekey('');
@@ -61,7 +62,8 @@ export function PublicCaptureView({ token }: { token: string }) {
     {companyName && techCenterIntro.map(paragraph => <p key={paragraph} className="mt-3 text-sm text-slate-600">{companyText(paragraph,companyName)}</p>)}
     {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}{success ? <p role="status" className="mt-6 rounded-lg bg-emerald-50 p-4 text-emerald-700">Tu postulación fue registrada correctamente. Gracias por tu interés.</p> : active && formId === COMPANY_CAPTURE_FORM && <form className="mt-5 space-y-4" onSubmit={async e => { e.preventDefault(); if (busy || !challenge || !campaigns.length) return; setBusy(true); setError(''); try { await publicCaptureApi(token, { ...techAnswers, privacyAcknowledged: data.consent, website: data.website, turnstileToken: challenge, requestId: requestId.current }); setSuccess(true); } catch(e) { setError(e instanceof Error ? e.message : 'No se pudo enviar.'); const api = (window as unknown as { turnstile?: Turnstile }).turnstile; if(widgetId.current) api?.reset(widgetId.current); setChallenge(''); } finally { setBusy(false); } }}>
     {!campaigns.length && <p role="status" className="rounded-lg bg-orange-50 p-3 text-sm">Esta empresa no tiene campañas disponibles para postular en este momento.</p>}
-    <TechCenterFields companyName={companyName} campaigns={campaigns} values={techAnswers} onChange={(key,value)=>setTechAnswers(previous=>({...previous,[key]:value}))} />
+    {techAnswers.preferredCampaign && !selectedConfig && <p role="status" className="rounded-lg bg-orange-50 p-3 text-sm">Esta campaña tiene pendiente la configuración del formulario. Contacta al responsable del enlace o selecciona otra campaña.</p>}
+    <TechCenterFields companyName={companyName} campaigns={campaigns} values={techAnswers} onChange={(key,value)=>setTechAnswers(previous=>changeCaptureAnswer(previous,key,value,campaigns))} />
     <div className="hidden" aria-hidden="true"><input tabIndex={-1} autoComplete="off" value={data.website} onChange={e => setData({ ...data, website: e.target.value })} /></div>
     <section className="space-y-4 border-t border-slate-200 pt-5">
       <h2 className="text-sm font-bold text-[#143A56]">6. PROTECCIÓN DE DATOS PERSONALES</h2>
@@ -70,6 +72,6 @@ export function PublicCaptureView({ token }: { token: string }) {
       <label className="flex items-start gap-2 text-sm"><input type="checkbox" required checked={data.consent} onChange={e => setData({ ...data, consent: e.target.checked })} />He leído la información sobre el tratamiento de mis datos personales.</label>
       <p className="text-xs italic text-slate-500">{techCenterPrivacyNote}</p>
     </section>
-    <div ref={widget} /><button disabled={busy || !challenge || !campaigns.length} className="w-full rounded-lg bg-sky-700 px-4 py-3 font-semibold text-white disabled:opacity-50">{busy ? 'Registrando…' : 'Enviar postulación'}</button>
+    <div ref={widget} /><button disabled={busy || !challenge || !selectedConfig} className="w-full rounded-lg bg-sky-700 px-4 py-3 font-semibold text-white disabled:opacity-50">{busy ? 'Registrando…' : 'Enviar postulación'}</button>
     </form>}</section></main>;
 }
