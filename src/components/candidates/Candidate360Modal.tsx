@@ -163,7 +163,7 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
         undefined,
         undefined,
         `Avance de etapa a ${nextStage} realizado por ${currentUser.name}`
-      );
+      ).catch(error=>alert(getWorkerErrorMessage(error)));
     }
   };
 
@@ -300,7 +300,7 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => markCandidateAptoCapacitacion(candidate.id)}
+                    onClick={() => void markCandidateAptoCapacitacion(candidate.id).catch(error=>alert(getWorkerErrorMessage(error)))}
                     className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />

@@ -198,9 +198,17 @@ function responsibleTargets(value: unknown): number {
   if (!Array.isArray(value)) return 0;
   return value.reduce((total, item) => total + (isRecord(item) ? numberValue(item.target) : 0), 0);
 }
+function validateCampaignEdit(data:Record<string,unknown>) {
+  if(!String(data.title??'').trim())throw new Error('INVALID_CAMPAIGN');
+  if(!Number.isInteger(Number(data.vacancies))||Number(data.vacancies)<0)throw new Error('INVALID_CAMPAIGN_AMOUNT');
+  for(const k of ['salaryBase','variableBonus','adminBonus','mobilityBonus'])if(data[k]!=null&&(!Number.isFinite(Number(data[k]))||(k==='salaryBase'&&Number(data[k])<0)))throw new Error('INVALID_CAMPAIGN_AMOUNT');
+  for(const k of ['requestDate','startDate','endDate'])if(data[k]&&(!/^\d{4}-\d{2}-\d{2}$/.test(String(data[k]))||!Number.isFinite(Date.parse(String(data[k])))||new Date(String(data[k])).toISOString().slice(0,10)!==data[k]))throw new Error('INVALID_CAMPAIGN_DATES');
+  if(data.startDate&&data.endDate&&String(data.endDate)<String(data.startDate))throw new Error('INVALID_CAMPAIGN_DATES');
+}
 async function createCampaign(request: Request, env: Env, actor: Profile) {
   requireSelectionManager(actor); const input = await request.json<Record<string, unknown>>();
   const id = campaignId(); const vacancies = numberValue(input.vacancies, 0); const responsibles = input.responsibles;
+  validateCampaignEdit(input);
   if (!String(input.title ?? '').trim() || vacancies <= 0) throw new Error('INVALID_CAMPAIGN');
   if (responsibleTargets(responsibles) > vacancies && input.allowOverTargetQuota !== true) throw new Error('TARGET_EXCEEDS_VACANCIES');
   const data = { ...input, id, companyId: actor.companyId, client: input.client ?? input.company, positionsCovered: numberValue(input.positionsCovered), positionsPending: Math.max(0, vacancies - numberValue(input.positionsCovered)), assignedUserIds: Array.isArray(responsibles) ? responsibles.filter(isRecord).map(entry => String(entry.userId ?? '')).filter(Boolean) : [], createdBy: actor.uid, createdAt: new Date().toISOString() };
@@ -214,6 +222,7 @@ async function updateCampaign(request: Request, env: Env, actor: Profile, id: st
   const patch: Record<string, unknown> = {};
   for (const field of editableFields) if (input[field] !== undefined) patch[field] = input[field];
   if (!Object.keys(patch).length) throw new Error('INVALID_CAMPAIGN');
+  validateCampaignEdit({...existing,...patch});
   const validStatuses = ['EN_PROCESO', 'PUBLICADO', 'CERRADO', 'ANULADO', 'ACTIVA', 'EN_PAUSA'];
   if (patch.status !== undefined && !validStatuses.includes(String(patch.status))) throw new Error('INVALID_STATUS');
   const vacancies = numberValue(patch.vacancies, numberValue(existing.vacancies)); const responsibles = existing.responsibles;

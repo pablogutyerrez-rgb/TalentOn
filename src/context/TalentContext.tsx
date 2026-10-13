@@ -170,7 +170,7 @@ interface TalentContextType {
   listCandidateDocuments: (candidateId: string) => Promise<DocumentItem[]>;
   replaceCandidateDocument: (candidateId: string, documentId: string, file: File) => Promise<void>;
   downloadCandidateDocument: (candidateId: string, documentId: string, fileName: string) => Promise<void>;
-  markCandidateAptoCapacitacion: (candidateId: string, notes?: string) => void;
+  markCandidateAptoCapacitacion: (candidateId: string, notes?: string) => Promise<void>;
   approveParticipantToTalentAlta: (candidateId: string, notes?: string) => Promise<boolean>;
   getCandidateEligibility: (candidateId: string) => Promise<CandidateEligibility>;
   logBlockedAltaAttempt: (candidateId: string, reasons: string[]) => Promise<void>;
@@ -700,7 +700,7 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Mark Apto Para Capacitacion (Disponibilidad inmediata para Formación)
   const markCandidateAptoCapacitacion = (candidateId: string, notes?: string) => {
-    updateCandidateSelectionStage(candidateId, 'APTO_CAPACITACION', undefined, undefined, notes || 'Candidato promovido a Apto para Capacitación.');
+    return updateCandidateSelectionStage(candidateId, 'APTO_CAPACITACION', undefined, undefined, notes || 'Candidato promovido a Apto para Capacitación.');
   };
 
   // Log Blocked Alta Attempt

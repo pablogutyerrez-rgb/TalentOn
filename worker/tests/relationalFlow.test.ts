@@ -63,6 +63,15 @@ describe('Transición relacional PostgreSQL 17',()=>{
   expect(r.status).toBe(201);campaignId=r.data.id;
   expect((await call('/api/campaigns/'+campaignId,'PATCH',{title:'CI editado'})).status).toBe(200);
   expect((await call('/api/bootstrap')).data.campaigns[0].title).toBe('CI editado');
+  expect((await call('/api/campaigns/'+campaignId,'PATCH',{code:'CI-CALL',company:'CI',client:'CI',title:'CI editado',area:'Operaciones Contact Center',serviceType:'VENTAS_OUTBOUND',salaryBase:1200,variableBonus:100,adminBonus:0,mobilityBonus:0,additionalConditions:'Editado',requestDate:'2026-10-12',processType:'EXTERNO',managementType:'PRESENCIAL',vacancies:2,location:'Lima',shift:'09:00-16:00',observations:'',status:'EN_PROCESO',assignedAnalystId:admin,assignedAnalystName:'CI Admin',requirements:['CI requisito']})).status).toBe(200);
+ });
+ it('edición inválida conserva convocatoria y explica cuotas, fechas e importes',async()=>{
+  for(const [body,code] of [[{vacancies:1},'TARGET_EXCEEDS_VACANCIES'],[{vacancies:1.5},'INVALID_CAMPAIGN_AMOUNT'],[{salaryBase:-1},'INVALID_CAMPAIGN_AMOUNT'],[{startDate:'2026-10-12',endDate:'2026-10-11'},'INVALID_CAMPAIGN_DATES'],[{requestDate:'2026-02-30'},'INVALID_CAMPAIGN_DATES']] as const){
+   const r=await call('/api/campaigns/'+campaignId,'PATCH',body);expect(r.status).toBe(400);expect(r.data.message).toBe(code);
+  }
+  const c=(await call('/api/bootstrap')).data.campaigns[0];expect(c.vacancies).toBe(2);expect(c.salaryBase).toBe(1200);
+  expect((await call('/api/campaigns/'+campaignId,'PATCH',{salaryBase:0,observations:'Corrección administrativa'})).status).toBe(200);
+  const edited=(await call('/api/bootstrap')).data.campaigns[0];expect(edited.salaryBase).toBe(0);expect(edited.title).toBe('CI editado');expect(edited.responsibles).toHaveLength(1);
  });
  it('crea candidato, datos personales y resultados de selección',async()=>{
   const r=await call('/api/candidates','POST',{dni:'99900001',fullName:'CI Persona',campaignId,recruiterId:admin,campaignName:'CI editado',phone:'999000001',source:'Otro',applicationDate:new Date().toISOString().slice(0,10)});

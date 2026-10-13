@@ -66,7 +66,7 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
       setCode(convocatoriaToEdit.code);
       setArea(convocatoriaToEdit.area || 'Operaciones');
       setServiceType(convocatoriaToEdit.serviceType || 'VENTAS_OUTBOUND');
-      setSalaryBase(convocatoriaToEdit.salaryBase || 1250);
+      setSalaryBase(convocatoriaToEdit.salaryBase ?? 1250);
       setVariableBonus(convocatoriaToEdit.variableBonus || 0);
       setAdminBonus(convocatoriaToEdit.adminBonus || 0);
       setMobilityBonus(convocatoriaToEdit.mobilityBonus || 0);
@@ -74,7 +74,7 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
       setRequestDate(convocatoriaToEdit.requestDate || new Date().toISOString().split('T')[0]);
       setProcessType(convocatoriaToEdit.processType || 'EXTERNO');
       setManagementType(convocatoriaToEdit.managementType || 'PRESENCIAL');
-      setVacancies(convocatoriaToEdit.vacancies || 10);
+      setVacancies(convocatoriaToEdit.vacancies ?? 10);
       setLocation(convocatoriaToEdit.location || 'Sede Central - Lima Centro');
       setShift(convocatoriaToEdit.shift || 'Lunes a Sábado 09:00 - 18:00');
       setObservations(convocatoriaToEdit.observations || '');

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getWorkerErrorMessage } from '../services/workerApi';
 import { IdentityAvatar } from '../components/common/IdentityAvatar';
 import { 
   Building2, 
@@ -213,7 +214,7 @@ export const MisConvocatoriasView: React.FC = () => {
       return;
     }
     if (newStage === 'APTO_CAPACITACION') {
-      markCandidateAptoCapacitacion(candidate.id, 'Marcado como Apto desde selector de estado');
+      void markCandidateAptoCapacitacion(candidate.id, 'Marcado como Apto desde selector de estado').catch(error=>alert(getWorkerErrorMessage(error)));
       return;
     }
     updateCandidateSelectionStage(
@@ -222,7 +223,7 @@ export const MisConvocatoriasView: React.FC = () => {
       undefined,
       undefined,
       `Cambio manual de etapa a ${newStage} por ${currentUser.name}`
-    );
+    ).catch(error=>alert(getWorkerErrorMessage(error)));
   };
 
   // Quick Contact Save Handler
@@ -823,7 +824,7 @@ export const MisConvocatoriasView: React.FC = () => {
                                   {col.id === 'EVALUACIONES' && (
                                     <button
                                       type="button"
-                                      onClick={() => markCandidateAptoCapacitacion(cand.id)}
+                                      onClick={() => void markCandidateAptoCapacitacion(cand.id).catch(error=>alert(getWorkerErrorMessage(error)))}
                                       className="px-2 py-0.5 bg-emerald-600 text-white rounded text-2xs font-bold hover:bg-emerald-500 cursor-pointer"
                                       title="Marcar como Apto para Capacitación"
                                     >

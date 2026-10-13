@@ -36,7 +36,7 @@ export class RelationalRuntime {
  private hash:string|null=null;
  private async rpc<T>(name:string,data:D):Promise<T>{
   const r=await fetch(this.env.SUPABASE_URL!.replace(/\/$/,'')+'/rest/v1/rpc/'+name,{method:'POST',headers:supabaseServerHeaders(this.env),body:JSON.stringify(data)});
-  if(!r.ok){const e=await r.json<{code?:string;message?:string}>().catch(()=>({} as any));throw new SupabaseError(e.code==='PT409'||e.code==='23505'?409:r.status,e.code==='PT409'?'CAPTURE_RETRY':e.code==='23505'?'DUPLICATE_RECORD':e.message==='PASSWORD_CHANGE_REQUIRED'?'PASSWORD_CHANGE_REQUIRED':'RELATIONAL_WRITE_FAILED');}
+  if(!r.ok){const e=await r.json<{code?:string;message?:string}>().catch(()=>({} as any));const codes:Record<string,string>={PT409:'CAPTURE_RETRY','23505':'DUPLICATE_RECORD','23503':'RELATED_RECORD_INVALID','23514':'DATA_VALIDATION_FAILED','23502':'DATA_VALIDATION_FAILED','22007':'INVALID_DATA_FORMAT','22008':'INVALID_DATA_FORMAT','22P02':'INVALID_DATA_FORMAT'};throw new SupabaseError(e.code==='PT409'||e.code==='23505'?409:r.status,codes[e.code||'']||(e.message==='PASSWORD_CHANGE_REQUIRED'?'PASSWORD_CHANGE_REQUIRED':'RELATIONAL_WRITE_FAILED'));}
   // PostgREST returns an empty body for the void commit RPC.
   if(name==='talent_runtime_commit')return undefined as T;
   return r.json<T>();
