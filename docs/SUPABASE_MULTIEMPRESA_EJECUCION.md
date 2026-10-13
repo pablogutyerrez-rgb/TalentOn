@@ -1,5 +1,15 @@
 # Integración multiempresa — 12 octubre 2026
 
+## Actualización: activación autorizada
+
+El bloqueo del entorno se resolvió. Se confirmó 011 aplicada mediante sus hashes y se ejecutó 012 atómicamente, con respaldo de 82 tablas restaurado previamente en PostgreSQL aislado (`multiempresa-backup-2026-10-13T04-56-20-802Z.json`, fecha UTC del archivo). Se conservaron los datos históricos.
+
+Worker desplegado con `ORG_ENABLED=true`, versión `14057b93-f35c-48cc-bbf5-c935b2451b2d`. Health HTTP 200 con proveedor Supabase; `/api/session` y `/api/org` sin token rechazan HTTP 401. Preflight de Railway HTTP 204 con origen exacto y cabecera empresarial permitida.
+
+Typechecks y build frontend completados; 110 pruebas Worker correctas. CI PostgreSQL del commit `a1f1e25` terminó correctamente (incluye concurrencia). Se corrigió la causa del fallo de CI Worker agregando `worker/vitest.config.ts`, para que no cargue la configuración React del directorio padre. La cuenta del CLI Railway pertenece a otro proyecto: se publica exclusivamente por el repositorio GitHub ya enlazado al proyecto `rare-mercy / production`, sin tocar ese proyecto ajeno. El despliegue Railway anterior (`f645d56`) figura exitoso; se verificará el correspondiente a este cambio tras publicar.
+
+Las secciones siguientes conservan el registro de la primera ejecución, incluido su bloqueo, ya resuelto. Los límites funcionales siguen vigentes.
+
 ## Estado verificable
 
 - Implementado localmente: selector de empresa, contexto de sesión validado por servidor, administración de empresas/catálogos/membresías, selector de campañas en convocatorias y captación, indicadores consolidados, identidad opaca compartida y validación empresarial de documentos laborales.

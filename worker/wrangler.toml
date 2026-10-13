@@ -4,6 +4,7 @@ compatibility_date = "2026-08-29"
 
 [vars]
 DATA_PROVIDER = "supabase"
+ORG_ENABLED = "true"
 ALLOWED_ORIGIN = "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001"
 PRODUCTION_ORIGIN = "https://talent-on-production.up.railway.app,https://talent-on.up.railway.app"
 MAX_UPLOAD_BYTES = "10485760"
