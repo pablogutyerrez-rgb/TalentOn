@@ -1,6 +1,8 @@
 import {supabaseServerHeaders,SupabaseError,type SupabaseEnv} from './supabase';
 import type {SessionProfile} from './supabaseSession';
 import {validateCaptureCampaignConfig} from '../../shared/captureCampaignConfig';
+import {validateFormBundle} from '../../shared/captureFormSchema';
+import {body as captureBody,CaptureError} from './capture';
 export async function organizationUserHome(env:SupabaseEnv,actor:SessionProfile,userId:string):Promise<string>{
  const r=await fetch(env.SUPABASE_URL!.replace(/\/$/,'')+'/rest/v1/rpc/talent_org_user_home',{method:'POST',headers:supabaseServerHeaders(env),body:JSON.stringify({p_actor:actor.authUserId,p_user:userId})});
  if(!r.ok)throw new SupabaseError(403,'FORBIDDEN');return r.json<string>();
@@ -12,6 +14,10 @@ export async function organizationUserGuard(env:SupabaseEnv,actor:SessionProfile
 export async function organizationRequest(request:Request,env:SupabaseEnv,actor:SessionProfile){
  const path=new URL(request.url).pathname;let name:string;let body:Record<string,unknown>={p_actor:actor.authUserId};
  if(path==='/api/org'&&request.method==='GET')name='talent_org_directory';
+ else if(path==='/api/capture/forms'&&request.method==='GET'){
+  if(!actor.globalAdmin)throw new SupabaseError(403,'FORBIDDEN');
+  name='talent_org_capture_forms';
+ }
  else if(path==='/api/org/capture-settings'&&request.method==='GET'){
   if(!actor.globalAdmin)throw new SupabaseError(403,'FORBIDDEN');
   name='talent_org_capture_settings';
@@ -24,8 +30,15 @@ export async function organizationRequest(request:Request,env:SupabaseEnv,actor:
   name='talent_org_summary';const input=await request.json<Record<string,unknown>>();body={...body,p_company:input.companyId||null,p_assignment:input.companyCampaignId||null};
  }else{
   if(!actor.globalAdmin)throw new SupabaseError(403,'FORBIDDEN');
-  const input=await request.json<Record<string,unknown>>();
-  if(path==='/api/org/capture-settings'&&request.method==='POST'){
+  let input:Record<string,unknown>;
+  try{input=path==='/api/capture/forms'?await captureBody(request,131072):await request.json<Record<string,unknown>>();}
+  catch(e){throw new SupabaseError(e instanceof CaptureError?e.status:400,e instanceof Error?e.message:'INVALID_BODY');}
+  if(path==='/api/capture/forms'&&request.method==='POST'){
+   if(typeof input.publish!=='boolean')throw new SupabaseError(400,'ORG_VALIDATION_FAILED');
+   let bundle;
+   try{bundle=validateFormBundle(input.bundle);}catch(e){throw new SupabaseError(400,e instanceof Error?e.message:'ORG_VALIDATION_FAILED');}
+   name='talent_org_capture_form_save';body={...body,p_company:input.companyId,p_id:input.id,p_expected:input.formVersion??null,p_settings_expected:input.version??null,p_bundle:bundle,p_publish:input.publish};
+  }else if(path==='/api/org/capture-settings'&&request.method==='POST'){
    let configuration;
    try {configuration=validateCaptureCampaignConfig(input.configuration);}catch{throw new SupabaseError(400,'ORG_VALIDATION_FAILED');}
    name='talent_org_capture_settings_save';body={...body,p_company:input.companyId,p_id:input.id,p_expected:input.version??null,p_configuration:configuration};

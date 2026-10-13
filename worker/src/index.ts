@@ -1199,7 +1199,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
       actor=await relationalSession(new Request(request.url,{headers:contextHeaders}),env);
     }
     if(actor?.managedCompany&&path==='/api/capture/links'&&request.method==='POST'){const input=await request.clone().json<{companyCampaignId?:string}>();if(!actor.companyCampaigns?.includes(input.companyCampaignId||''))throw new SupabaseError(403,'COMPANY_CAMPAIGN_REQUIRED');}
-    if(path.startsWith('/api/org')&&env.ORG_ENABLED==='true'&&actor)return response(await organizationRequest(request,env,actor),200,cors(request,env));
+    if((path.startsWith('/api/org')||path==='/api/capture/forms')&&env.ORG_ENABLED==='true'&&actor)return response(await organizationRequest(request,env,actor),200,cors(request,env));
     const runtimeEnv={...env,ORG_COMPANY:actor?.companyId};
     store=await new RelationalRuntime(runtimeEnv,actor?.authUserId||null,token).load();
     scoped={...runtimeEnv,DOCUMENTS:objectStore,RELATIONAL_ACTOR:actor,RELATIONAL_RUNTIME:store};

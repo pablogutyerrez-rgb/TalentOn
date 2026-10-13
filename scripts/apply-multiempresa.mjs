@@ -16,8 +16,9 @@ const globalOnly=process.argv.includes('--global');
 const userOrderOnly=process.argv.includes('--user-order');
 const captureFormOnly=process.argv.includes('--capture-form');
 const captureSettingsOnly=process.argv.includes('--capture-settings');
-const guardOnly=process.argv.includes('--guard');const contextOnly=process.argv.includes('--context');const extensionOnly=identityOnly||guardOnly||contextOnly||profileOnly||globalOnly||userOrderOnly||captureFormOnly||captureSettingsOnly;
-const names=captureSettingsOnly?['202610130016_capture_campaign_settings.sql']:captureFormOnly?['202610130015_public_capture_catalog.sql']:userOrderOnly?['202610130014_user_create_membership_order.sql']:globalOnly?['202610130013_global_dashboard_user_access.sql']:profileOnly?['202610120012_multiempresa_profile_identity.sql']:contextOnly?['202610120011_multiempresa_context_list.sql']:guardOnly?['202610120010_multiempresa_global_guard.sql']:identityOnly?['202610120009_multiempresa_identity.sql']:['202610120007_multiempresa_prepared.sql','202610120008_multiempresa_runtime.sql'];
+const captureBuilderOnly=process.argv.includes('--capture-builder');
+const guardOnly=process.argv.includes('--guard');const contextOnly=process.argv.includes('--context');const extensionOnly=identityOnly||guardOnly||contextOnly||profileOnly||globalOnly||userOrderOnly||captureFormOnly||captureSettingsOnly||captureBuilderOnly;
+const names=captureBuilderOnly?['202610130017_capture_form_builder.sql']:captureSettingsOnly?['202610130016_capture_campaign_settings.sql']:captureFormOnly?['202610130015_public_capture_catalog.sql']:userOrderOnly?['202610130014_user_create_membership_order.sql']:globalOnly?['202610130013_global_dashboard_user_access.sql']:profileOnly?['202610120012_multiempresa_profile_identity.sql']:contextOnly?['202610120011_multiempresa_context_list.sql']:guardOnly?['202610120010_multiempresa_global_guard.sql']:identityOnly?['202610120009_multiempresa_identity.sql']:['202610120007_multiempresa_prepared.sql','202610120008_multiempresa_runtime.sql'];
 const hash=v=>createHash('sha256').update(v).digest('hex');const quote=v=>'"'+v.replaceAll('"','""')+'"';
 let isolated;
 try{

@@ -7,10 +7,12 @@ import {PGlite} from '@electric-sql/pglite';
 import worker,{type Env} from '../src/index';
 import {RelationalRuntime} from '../src/relationalRuntime';
 import {techCenterSections,optionValue} from '../../shared/techCenterForm';
+import {defaultCaptureForm} from '../../shared/captureFormSchema';
 const admin='40000000-0000-4000-8000-000000000001';
 const trainer='40000000-0000-4000-8000-000000000002';
 const other='40000000-0000-4000-8000-000000000003';
 let db:any,campaignId:string,personId:string,groupId:string;
+let failNextCaptureCommit=false;
 const objects=new Map<string,Uint8Array>();
 const registrationAnswers={age:'25',contactCenterExperience:'No',workedAtTechCenter:'No',education:'Secundaria completa',workday:'Full time',availability:'Tarde',commitments:'No',modality:'Presencial',privacyAcknowledged:true};
 const captureConfiguration={minAge:18,maxAge:null,workdays:['Full time','Semi full'],schedules:['Tarde'],modality:'Presencial'};
@@ -54,7 +56,7 @@ describe('Transición relacional PostgreSQL 17',()=>{
     if(fn==='talent_capture_catalog')result=await db.query('select public.talent_capture_catalog($1) as result',[body.p_hash]);
     else if(fn==='talent_session_profile')result=await db.query('select public.talent_session_profile($1::uuid) as result',[body.p_auth]);
     else if(fn==='talent_runtime_snapshot')result=await db.query('select public.talent_runtime_snapshot($1::uuid,$2) as result',[body.p_actor,body.p_public_hash]);
-    else if(fn==='talent_runtime_commit')result=await db.query('select public.talent_runtime_commit($1::uuid,$2,$3,$4,$5::jsonb,$6::text[]) as result',[body.p_actor,body.p_public_hash,body.p_company,body.p_revision,JSON.stringify(body.p_rows),body.p_resets||[]]);
+    else if(fn==='talent_runtime_commit'){if(failNextCaptureCommit){failNextCaptureCommit=false;throw new Error('SIMULATED_COMMIT_FAILURE');}result=await db.query('select public.talent_runtime_commit($1::uuid,$2,$3,$4,$5::jsonb,$6::text[]) as result',[body.p_actor,body.p_public_hash,body.p_company,body.p_revision,JSON.stringify(body.p_rows),body.p_resets||[]]);}
     else if(fn?.startsWith('talent_org_')){const keys=Object.keys(body);result=await db.query('select public.'+fn+'('+keys.map((k,i)=>k+'=> $'+(i+1)).join(',')+') as result',keys.map(k=>['p_rows','p_grants'].includes(k)?JSON.stringify(body[k]):Array.isArray(body[k])?'{'+body[k].join(',')+'}':body[k]&&typeof body[k]==='object'?JSON.stringify(body[k]):body[k]));}
     else throw new Error('UNKNOWN_RPC '+fn);
     await db.exec('commit');return fn==='talent_runtime_commit'?new Response(null,{status:204}):Response.json(result.rows[0].result??null);
@@ -175,7 +177,7 @@ describe('Transición relacional PostgreSQL 17',()=>{
   const info=await publicRequest();expect(info.status).toBe(200);expect(info.data.ownerUid).toBeUndefined();expect(info.data.source).toBeUndefined();
   expect(info.data.formId).toBe('company-capture-v1');
   expect(info.data.companyName).toBe('CI');
-  expect(info.data.campaigns).toEqual([{id:campaignId,name:'Ganador',configuration:null}]);
+  expect(info.data.campaigns).toEqual([{id:campaignId,name:'Ganador',configuration:null,form:null,formRevision:null}]);
   await db.exec(`insert into talent_org.global_admins(id,auth_user_id) values('ci-global','${admin}')`);
   env.ORG_ENABLED='true';
   try {
@@ -289,6 +291,57 @@ describe('Transición relacional PostgreSQL 17',()=>{
    expect(dossier.events[0].applicant.techCenterAnswers.experienceDetails).toBe('Un año en ventas');
    expect((await call('/api/capture/candidates/'+event.candidateId,'GET',undefined,other)).status).not.toBe(200);
   } finally {env.ORG_ENABLED=undefined;}
+ });
+ it('formularios: borrador, publicación, captura con adjunto privado y rollback R2',async()=>{
+  env.ORG_ENABLED='true';
+  try{
+   const form=defaultCaptureForm();form.title='Formulario CI publicado';
+   form.questions.push({id:'customSkills',label:'Habilidades',section:'Adicional',type:'multiple',required:true,options:[{value:'ventas',label:'Ventas'},{value:'soporte',label:'Soporte'}]},{id:'cvFile',label:'CV',section:'Adicional',type:'file',required:true});
+   const id='techcenter:bitel-portabilidad';
+   const row=(await call('/api/capture/forms')).data.find((r:any)=>r.id===id);
+   expect(row.draft).toBeNull();
+   const bundle={configuration:captureConfiguration,form};
+   const params={companyId:'techcenter',id,version:row.version,formVersion:null,bundle,publish:false};
+   expect((await call('/api/capture/forms','GET',undefined,trainer)).status).toBe(403);
+   expect((await call('/api/capture/forms','POST',params,trainer)).status).toBe(403);
+   const draft=await call('/api/capture/forms','POST',params);expect(draft.status).toBe(200);expect(draft.data.published).toBeNull();
+   expect((await call('/api/capture/forms','POST',params)).status).toBe(409);
+   expect((await call('/api/capture/forms','POST',{...params,companyId:'talent-up',formVersion:1})).status).toBe(403);
+   const link=(await call('/api/capture/links','GET',undefined,admin,'techcenter')).data.items[0];
+   const pub=async(payload?:any,file?:File)=>{
+    const data=payload?new FormData():undefined;if(data){data.set('payload',JSON.stringify(payload));if(file)data.set('file:cvFile',file);}
+    return worker.fetch(new Request('https://worker.test/api/public/capture/'+link.id,{method:data?'POST':'GET',headers:{Origin:'http://localhost:3000','cf-connecting-ip':'192.0.2.55'},...(data?{body:data}:{})}),env);
+   };
+   expect((await(await pub()).json() as any).campaigns.find((c:any)=>c.id===id).form).toBeNull();
+   const published=await call('/api/capture/forms','POST',{...params,formVersion:1,publish:true});expect(published.status).toBe(200);expect(published.data.publishedRevision).toBe(2);
+   const catalog=await(await pub()).json() as any;expect(catalog.campaigns.find((c:any)=>c.id===id).form.title).toBe(form.title);
+   expect(JSON.stringify(catalog)).not.toContain('draft');
+   const payload={...registrationAnswers,preferredCampaign:id,formRevision:2,fullName:'CI Documento',documentType:'DNI',documentNumber:'98800111',phone:'912345672',email:'ci-file@example.test',district:'Lima',customSkills:['ventas','soporte'],requestId:crypto.randomUUID(),turnstileToken:'test-token'};
+   const file=new File(['%PDF-1.7 isolated fixture'],'cv.pdf',{type:'application/pdf'});
+   expect((await pub(payload)).status).toBe(400);
+   expect((await pub({...payload,formRevision:1},file)).status).toBe(409);
+   expect((await pub({...payload,customSkills:['injected']},file)).status).toBe(400);
+   expect((await pub(payload,new File(['bad'],'cv.pdf',{type:'application/pdf'}))).status).toBe(400);
+   const before=objects.size;
+   expect((await pub(payload,file)).status).toBe(201);expect(objects.size).toBe(before+1);
+   expect((await pub(payload,file)).status).toBe(201);expect(objects.size).toBe(before+1);
+   const event=(await call('/api/capture/management','GET',undefined,admin,'techcenter')).data.events.find((e:any)=>e.applicant.documentNumber==='98800111');
+   expect(event.applicant.formSubmission.answers.customSkills).toEqual(['soporte','ventas']);
+   expect(event.applicant.formSubmission.attachments[0]).toMatchObject({id:'cvFile',name:'cv.pdf'});
+   const download=await worker.fetch(new Request('https://worker.test/api/capture/attachments/'+event.id+'/cvFile',{headers:{Origin:'http://localhost:3000',Authorization:'Bearer '+admin,'X-Talent-Company':'techcenter'}}),env);
+   expect(download.status).toBe(200);expect(download.headers.get('Content-Disposition')).toContain('attachment');expect(await download.text()).toContain('%PDF');
+   expect((await call('/api/capture/attachments/'+event.id+'/cvFile','GET',undefined,other)).status).toBe(403);
+   expect((await call('/api/capture/events/'+event.id,'PATCH',{status:'Contactado'},admin,'techcenter')).status).toBe(200);
+   expect((await call('/api/capture/candidates/'+event.candidateId,'GET',undefined,admin,'techcenter')).data.events[0].applicant.formSubmission.title).toBe(form.title);
+   const changed={...bundle,form:{...form,title:'Borrador no publicado'}};
+   expect((await call('/api/capture/forms','POST',{...params,bundle:changed,formVersion:2,version:published.data.settingsVersion})).status).toBe(200);
+   expect((await(await pub()).json() as any).campaigns.find((c:any)=>c.id===id).form.title).toBe(form.title);
+   // Failed database transaction must remove the newly uploaded object, not the old file.
+   failNextCaptureCommit=true;
+   expect((await pub({...payload,documentNumber:'98800112',requestId:crypto.randomUUID()},file)).status).not.toBe(201);
+   expect(objects.size).toBe(before+1);
+   const audit=(await db.query("select count(*)::int as n from talent_org.audit_events where table_name='capture_forms' and entity_id=$1",[id])).rows[0].n;expect(audit).toBe(3);
+  }finally{failNextCaptureCommit=false;env.ORG_ENABLED=undefined;}
  });
  it('creación y edición global guarda accesos de dos empresas con rollback y CAS',async()=>{
   env.ORG_ENABLED='true';

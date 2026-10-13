@@ -1,5 +1,7 @@
 # Configuración del formulario por campaña
 
+Actualización posterior (017): el editor ahora se ubica en **Selección → Captación → Formularios · Crear y editar**; véase [CAPTACION_EDITOR_FORMULARIOS.md](CAPTACION_EDITOR_FORMULARIOS.md). Migración 017 aplicada y Worker publicado. La ubicación en Administración descrita abajo es histórica, de la versión 016; ya no es el acceso del nuevo editor.
+
 Actualización 13/10/2026: migración 016 aplicada en producción con autorización del usuario. Respaldo privado de 82 tablas y restauración aislada verificados (`supabase/.local/multiempresa-backup-2026-10-13T17-25-46-132Z.json`). Históricos, Auth y R2 conservados. Verificación local: 130 pruebas Worker, typecheck de ambos proyectos, build frontend y render del formulario correctos.
 
 Worker publicado: `ec8406c8-78a6-4d5c-9fc7-365a4d4a81da`. Consulta PostgreSQL de solo lectura con CA y hostname verificados: migración registrada, catálogo administrativo disponible para las cuatro empresas (9 campañas; ninguna configurada aún).

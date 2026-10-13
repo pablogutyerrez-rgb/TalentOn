@@ -5,6 +5,10 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {TechCenterFields} from '../src/components/capture/TechCenterFields';
 import {TechCenterAnswers} from '../src/components/capture/TechCenterAnswers';
 import type {CaptureCampaignOption} from '../shared/techCenterForm';
+import {CaptureFormFields} from '../src/components/capture/CaptureFormFields';
+import {CaptureFormAnswers} from '../src/components/capture/CaptureFormAnswers';
+import {CaptureQuestionEditor} from '../src/components/capture/CaptureQuestionEditor';
+import {defaultCaptureForm,effectiveQuestions,validateCaptureForm} from '../shared/captureFormSchema';
 const campaigns:CaptureCampaignOption[]=[{id:'onsite',name:'Campaña presencial',configuration:{minAge:18,maxAge:60,workdays:['Full time'],schedules:['09:00–18:00'],modality:'Presencial'}},
  {id:'remote',name:'Campaña remota',configuration:{minAge:18,maxAge:null,workdays:['Semi full','Part time'],schedules:['15:00–19:00'],modality:'Remota'}}];
 const render=(values:Record<string,string>)=>renderToStaticMarkup(<TechCenterFields companyName="Empresa de prueba" campaigns={campaigns} values={values} onChange={()=>{}}/>);
@@ -21,3 +25,13 @@ assert(remote.includes('apoyo para participar'));assert(remote.includes('Respues
 const legacy=renderToStaticMarkup(<TechCenterAnswers answers={{adult:'Sí',modality:'Ambas modalidades',contactCenterExperience:'Sí',experienceDetails:'Un año en ventas',usbHeadset:'Sí'}}/>);
 assert(legacy.includes('formulario anterior'));assert(legacy.includes('Un año en ventas'));
 console.log('OK: modalidades, opciones, condiciones, edad, marca y respuestas históricas.');
+const custom=validateCaptureForm(defaultCaptureForm());
+custom.questions.push({id:'extraSkills',type:'multiple',label:'Habilidades',section:'Extra',required:true,options:[{value:'sales',label:'Ventas'}]},{id:'cv',type:'file',label:'Adjunta CV',section:'Extra',required:false});
+const questions=effectiveQuestions(custom,campaigns[1].configuration!,campaigns[1],'Empresa de prueba');
+const markup=renderToStaticMarkup(<CaptureFormFields questions={questions} values={{preferredCampaign:'remote',modality:'Remota',contactCenterExperience:'Sí'}} onChange={()=>{}}/>);
+assert(markup.includes('type="file"'));assert(markup.includes('type="checkbox"'));assert(markup.includes('headset'));
+const editor=renderToStaticMarkup(<CaptureQuestionEditor questions={custom.questions} onChange={()=>{}}/>);
+for(const label of ['Texto corto','Texto largo','Respuesta única','Respuesta múltiple','Adjuntar documento','Mostrar cuando','Obligatoria','Agregar pregunta'])assert(editor.includes(label));
+const snapshot=renderToStaticMarkup(<CaptureFormAnswers eventId="isolated" submission={{revision:1,title:'Versión original',questions,answers:{extraSkills:['sales']},attachments:[{id:'cv',name:'cv.pdf',size:1234}]}}/>);
+assert(snapshot.includes('Ventas'));assert(snapshot.includes('Descargar cv.pdf'));assert(snapshot.includes('Versión original'));
+console.log('OK: editor, tipos, adjuntos y lectura de respuestas versionadas.');

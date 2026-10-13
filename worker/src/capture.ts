@@ -1,5 +1,8 @@
 import type { Env } from './index';
 import { TECH_CENTER_FORM, COMPANY_CAPTURE_FORM, validateTechCenterAnswers, type CaptureCampaignOption } from '../../shared/techCenterForm';
+import {effectiveQuestions,validateFormAnswers,validateCaptureForm,visibleQuestions,type FormAnswers} from '../../shared/captureFormSchema';
+import {captureConfig} from '../../shared/captureCampaignConfig';
+import {readCaptureSubmission,verifyCaptureFile,type CaptureFile} from './captureAttachments';
 
 export type Data = Record<string, any>;
 type Actor = { uid: string; role: string; companyId: string; allowedModules: string[]; subordinateUserIds?: string[] };
@@ -10,10 +13,10 @@ export class CaptureError extends Error { constructor(message: string, public st
 const text = (v: unknown, max: number) => typeof v === 'string' ? v.normalize('NFKC').trim().replace(/\s+/g, ' ').slice(0, max) : '';
 const digits = (v: unknown) => text(v, 40).replace(/\D/g, '');
 const phone = (v: unknown) => { const n = digits(v); return n.length === 11 && n.startsWith('51') ? n.slice(2) : n; };
-export function captureInput(v: Data, techCenter = false, campaigns?: CaptureCampaignOption[]) {
+export function captureInput(v: Data, techCenter = false, campaigns?: CaptureCampaignOption[], validatedAnswers?:FormAnswers) {
   let techCenterAnswers: Record<string, string> | undefined;
   if (techCenter) {
-    try { techCenterAnswers = validateTechCenterAnswers(v,campaigns); }
+    try { techCenterAnswers = validatedAnswers ? Object.fromEntries(Object.entries(validatedAnswers).filter((entry):entry is [string,string]=>typeof entry[1]==='string')) : validateTechCenterAnswers(v,campaigns); }
     catch (error) { throw new CaptureError((error as Error).message); }
     if (v.privacyAcknowledged !== true) throw new CaptureError('Confirma que has leído la información sobre el tratamiento de tus datos personales.');
   }
@@ -83,11 +86,11 @@ export class Store {
   }
 }
 
-export async function body(request: Request): Promise<Data> {
+export async function body(request: Request, limit=8192): Promise<Data> {
   if (!request.headers.get('content-type')?.includes('application/json')) throw new CaptureError('INVALID_CONTENT_TYPE');
   const reader = request.body?.getReader(); if (!reader) throw new CaptureError('INVALID_BODY');
   const chunks: Uint8Array[] = []; let size = 0;
-  while (true) { const chunk = await reader.read(); if (chunk.done) break; size += chunk.value.length; if (size > 8192) { await reader.cancel(); throw new CaptureError('Solicitud demasiado grande.', 413); } chunks.push(chunk.value); }
+  while (true) { const chunk = await reader.read(); if (chunk.done) break; size += chunk.value.length; if (size > limit) { await reader.cancel(); throw new CaptureError('Solicitud demasiado grande.', 413); } chunks.push(chunk.value); }
   const bytes = new Uint8Array(size); let offset = 0; chunks.forEach(chunk => { bytes.set(chunk, offset); offset += chunk.length; }); const raw = new TextDecoder().decode(bytes);
   try { const data = JSON.parse(raw); if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error(); return data; } catch { throw new CaptureError('INVALID_BODY'); }
 }
@@ -137,7 +140,27 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
       ...(techCenter ? { formId: formVersion, noticeVersion: formVersion } : {}),
       ...(catalog ? catalog : {}),
     });
-    const input = await body(request), applicant = captureInput(input, techCenter, catalog?.campaigns);
+    const {input,files}=await readCaptureSubmission(request);
+    const chosen=catalog?.campaigns.find(c=>c.id===input.preferredCampaign);
+    let formSubmission:Data|undefined,validatedAnswers:FormAnswers|undefined;
+    const verifiedFiles=new Map<string,CaptureFile>();
+    if(chosen?.form){
+      if(input.formRevision!==chosen.formRevision)throw new CaptureError('El formulario cambió. Recarga la página antes de enviarlo.',409);
+      const config=captureConfig(chosen.configuration);if(!config)throw new CaptureError('Campaña pendiente de configuración.');
+      try{
+        const definition=validateCaptureForm(chosen.form);
+        const questions=effectiveQuestions(definition,config,chosen,catalog!.companyName);
+        const visible=visibleQuestions(questions,input);
+        for(const [id,file]of files){
+          if(!visible.some(q=>q.id===id&&q.type==='file'))throw new CaptureError('Adjunto no permitido en este formulario.');
+          verifiedFiles.set(id,await verifyCaptureFile(file));
+        }
+        validatedAnswers=validateFormAnswers(questions,input,new Set(verifiedFiles.keys()));
+        formSubmission={revision:chosen.formRevision,title:definition.title,questions:visible,answers:validatedAnswers,attachments:[]};
+      }catch(e){throw new CaptureError(e instanceof Error?e.message:'Revisa el formulario.');}
+    }else if(files.size)throw new CaptureError('Este formulario no permite adjuntos.');
+    const applicant:Data = captureInput(input, techCenter, catalog?.campaigns,validatedAnswers);
+    if(formSubmission)applicant.formSubmission=formSubmission;
     const selectedCampaign = catalog?.campaigns.find(c=>c.id===applicant.techCenterAnswers?.preferredCampaign);
     if(catalog && applicant.techCenterAnswers && selectedCampaign){
       applicant.techCenterAnswers.preferredCampaignId=selectedCampaign.id;
@@ -147,7 +170,8 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
     if (!/^[a-f0-9-]{36}$/.test(input.requestId || '')) throw new CaptureError('INVALID_REQUEST_ID');
     if (!env.CAPTURE_HASH_SECRET) throw new CaptureError('Captación pública pendiente de configuración.', 503);
     const requestKey = await digest(env.CAPTURE_HASH_SECRET!, `request:${pub[1]}:${input.requestId}`);
-    const fingerprint = await digest(env.CAPTURE_HASH_SECRET!, JSON.stringify(applicant));
+    const fileFingerprints=[...verifiedFiles].map(([id,{sha256,file}])=>({id,sha256,name:file.name,size:file.size})).sort((a,b)=>a.id.localeCompare(b.id));
+    const fingerprint = await digest(env.CAPTURE_HASH_SECRET!, JSON.stringify(formSubmission?{applicant,files:fileFingerprints}:applicant));
     const retry = await store.get(`captureRequests/${requestKey}`);
     if (retry) { if (retry.fingerprint !== fingerprint) throw new CaptureError('INVALID_RETRY', 409); return reply({ ok: true }, 201); }
     await challenge(request, env, input);
@@ -170,6 +194,14 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
       const matched = matchIdentity(applicant, candidates);
       const candidateId = identity?.candidateId || matched.candidateId || `CAP-${crypto.randomUUID()}`;
       const eventId = crypto.randomUUID(), conflict = matched.conflict;
+      if(formSubmission){
+        for(const [id,{file,sha256}]of verifiedFiles){
+          const ext=file.type==='application/pdf'?'pdf':file.type==='image/png'?'png':'jpg';
+          const objectKey='capture/'+encodeURIComponent(link.companyId)+'/'+eventId+'/'+id+'-'+crypto.randomUUID()+'.'+ext;
+          await env.DOCUMENTS.put(objectKey,file.stream(),{httpMetadata:{contentType:file.type}});
+          formSubmission.attachments.push({id,name:file.name.replace(/[\x00-\x1f\x7f]/g,'').slice(0,160),mimeType:file.type,size:file.size,sha256,objectKey});
+        }
+      }
       const privacy = techCenter
         ? { privacyAcknowledgement: { acknowledged: true, version: formVersion, acknowledgedAt: now } }
         : { consent: { accepted: true, version: 'capture-v1', acceptedAt: now } };
@@ -186,6 +218,16 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
     return reply(result, 201);
   }
   if (!actor) throw new CaptureError('NOT_FOUND', 404);
+  const attachment=path.match(/^\/api\/capture\/attachments\/([a-f0-9-]{36})\/([a-zA-Z][a-zA-Z0-9_]{0,63})$/);
+  if(attachment&&request.method==='GET'){
+    const event=await store.get('captations/'+attachment[1]);
+    const supervised=actor.role==='ANALISTA_SELECCION'?new Set((await managerOwners()).map(u=>u.uid)):new Set<string>();
+    if(!event||event.companyId!==actor.companyId||actor.role!=='ADMIN'&&event.ownerUid!==actor.uid&&!supervised.has(event.ownerUid))throw new CaptureError('FORBIDDEN',403);
+    const file=event.applicant?.formSubmission?.attachments?.find((f:Data)=>f.id===attachment[2]);
+    if(!file?.objectKey)throw new CaptureError('NOT_FOUND',404);
+    const object=await env.DOCUMENTS.get(file.objectKey);if(!object)throw new CaptureError('NOT_FOUND',404);
+    return new Response(object.body,{headers:{'Content-Type':file.mimeType,'Content-Disposition':"attachment; filename*=UTF-8''"+encodeURIComponent(file.name),'X-Content-Type-Options':'nosniff','Cache-Control':'no-store','Content-Security-Policy':"sandbox; default-src 'none'"}});
+  }
   if (actor.role === 'ANALISTA_SELECCION' && !/^\/api\/capture\/candidates\/[^/]+$/.test(path)) throw new CaptureError('FORBIDDEN', 403);
   const filter = actor.role === 'ADMIN' ? {} : { ownerUid: actor.uid };
   if (path === '/api/capture/links' && request.method === 'GET') {

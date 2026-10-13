@@ -1,13 +1,13 @@
 import React from 'react';
 import { companySections, optionLabel, optionValue, type CaptureCampaignOption } from '../../../shared/techCenterForm';
 
-export function TechCenterFields({ values, onChange, companyName, campaigns }: { values: Record<string, string>; onChange: (key: string, value: string) => void; companyName:string; campaigns:CaptureCampaignOption[] }) {
+export function TechCenterFields({ values, onChange, companyName, campaigns, hideCampaign=false }: { values: Record<string, string>; onChange: (key: string, value: string) => void; companyName:string; campaigns:CaptureCampaignOption[];hideCampaign?:boolean }) {
   const control = 'mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-100';
   return <>{companySections(companyName,campaigns,values).filter(section => !section.when || section.when(values)).map(section =>
     <fieldset key={section.title} className="space-y-5 border-t border-slate-200 pt-5">
       <legend className="px-1 text-sm font-bold text-[#143A56]">{section.title}</legend>
       {section.hint && <p className="text-sm italic text-slate-500">{section.hint}</p>}
-      {section.fields.filter(field => !field.when || field.when(values)).map(field => <label key={field.key} className="block text-sm font-semibold text-slate-700">
+      {section.fields.filter(field => (!hideCampaign||field.key!=='preferredCampaign')&&(!field.when || field.when(values))).map(field => <label key={field.key} className="block text-sm font-semibold text-slate-700">
         {field.label}{field.required && ' (*)'}
         {field.options ? <select className={control} required={field.required} value={values[field.key] || ''} onChange={e => onChange(field.key, e.target.value)}>
           <option value="">Selecciona una opción</option>{field.options.map(option => <option key={optionValue(option)} value={optionValue(option)}>{optionLabel(option)}</option>)}

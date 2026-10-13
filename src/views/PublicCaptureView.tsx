@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { publicCaptureApi } from '../services/captureApi';
 import { TechCenterFields } from '../components/capture/TechCenterFields';
-import { COMPANY_CAPTURE_FORM, companyText, changeCaptureAnswer, selectedCaptureConfig, type CaptureCampaignOption, techCenterIntro, techCenterPrivacy, techCenterPrivacyNote } from '../../shared/techCenterForm';
+import {CaptureFormFields} from '../components/capture/CaptureFormFields';
+import {effectiveQuestions,visibleQuestions,type FormAnswers} from '../../shared/captureFormSchema';
+import { COMPANY_CAPTURE_FORM, companyText, selectedCaptureConfig, type CaptureCampaignOption, techCenterIntro, techCenterPrivacy, techCenterPrivacyNote } from '../../shared/techCenterForm';
 type Turnstile = { render: (el: HTMLElement, options: object) => string; remove: (id: string) => void; reset: (id: string) => void };
 export function PublicCaptureView({ token }: { token: string }) {
   const [active, setActive] = useState(false), [error, setError] = useState(''), [success, setSuccess] = useState(false), [busy, setBusy] = useState(false);
@@ -9,10 +11,19 @@ export function PublicCaptureView({ token }: { token: string }) {
   const [data, setData] = useState({ fullName: '', phone: '', email: '', documentType: 'DNI', documentNumber: '', district: '', consent: false, website: '' });
   const [sitekey, setSitekey] = useState('');
   const [formId, setFormId] = useState('');
-  const [techAnswers, setTechAnswers] = useState<Record<string, string>>({});
+  const [techAnswers, setTechAnswers] = useState<FormAnswers>({});
+  const [files,setFiles]=useState<Record<string,File>>({});
   const [companyName, setCompanyName] = useState('');
   const [campaigns, setCampaigns] = useState<CaptureCampaignOption[]>([]);
   const selectedConfig = selectedCaptureConfig(techAnswers,campaigns);
+  const selectedCampaign=campaigns.find(c=>c.id===techAnswers.preferredCampaign);
+  const customForm=selectedCampaign?.form;
+  const questions=customForm&&selectedConfig&&selectedCampaign?effectiveQuestions(customForm,selectedConfig,selectedCampaign,companyName):undefined;
+  const changeAnswer=(key:string,value:string|string[])=>{
+    if(key==='preferredCampaign'){
+      setFiles({});setTechAnswers({preferredCampaign:String(value),modality:campaigns.find(c=>c.id===value)?.configuration?.modality||''});
+    }else setTechAnswers(previous=>({...previous,[key]:value}));
+  };
   useEffect(() => {
     let cancelled = false;
     setActive(false); setChallenge(''); setError(''); setSuccess(false); setSitekey('');
@@ -22,7 +33,7 @@ export function PublicCaptureView({ token }: { token: string }) {
       if (cancelled) return;
       const key = config.turnstileSiteKey || import.meta.env.VITE_TURNSTILE_SITE_KEY || '';
       setActive(true);
-      setFormId(config.formId || ''); setCompanyName(config.companyName || ''); setCampaigns(config.campaigns || []);
+      setFiles({});setFormId(config.formId || ''); setCompanyName(config.companyName || ''); setCampaigns(config.campaigns || []);
       if(config.formId !== COMPANY_CAPTURE_FORM || !config.companyName){setError('El formulario está actualizándose. Recarga la página en unos momentos.');return;}
       if (!key || config.securityReady === false) {
         setError('Formulario pendiente de configuración de seguridad. Contacta al responsable del enlace.');
@@ -58,12 +69,25 @@ export function PublicCaptureView({ token }: { token: string }) {
 
   return <main className="talent-app min-h-screen bg-slate-50 px-4 py-8"><section className="mx-auto max-w-xl rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
     <p className="mb-4 text-lg font-bold tracking-wide text-[#143A56]">{companyName}</p>
-    <h1 className="text-2xl font-bold">Formulario de registro de postulantes</h1>
+    <h1 className="text-2xl font-bold">{customForm?.title||'Formulario de registro de postulantes'}</h1>
+    {customForm?.description&&<p className="mt-3 text-sm text-slate-600">{customForm.description}</p>}
     {companyName && techCenterIntro.map(paragraph => <p key={paragraph} className="mt-3 text-sm text-slate-600">{companyText(paragraph,companyName)}</p>)}
-    {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}{success ? <p role="status" className="mt-6 rounded-lg bg-emerald-50 p-4 text-emerald-700">Tu postulación fue registrada correctamente. Gracias por tu interés.</p> : active && formId === COMPANY_CAPTURE_FORM && <form className="mt-5 space-y-4" onSubmit={async e => { e.preventDefault(); if (busy || !challenge || !campaigns.length) return; setBusy(true); setError(''); try { await publicCaptureApi(token, { ...techAnswers, privacyAcknowledged: data.consent, website: data.website, turnstileToken: challenge, requestId: requestId.current }); setSuccess(true); } catch(e) { setError(e instanceof Error ? e.message : 'No se pudo enviar.'); const api = (window as unknown as { turnstile?: Turnstile }).turnstile; if(widgetId.current) api?.reset(widgetId.current); setChallenge(''); } finally { setBusy(false); } }}>
+    {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}{success ? <p role="status" className="mt-6 rounded-lg bg-emerald-50 p-4 text-emerald-700">Tu postulación fue registrada correctamente. Gracias por tu interés.</p> : active && formId === COMPANY_CAPTURE_FORM && <form className="mt-5 space-y-4" onSubmit={async e => {
+      e.preventDefault(); if(busy||!challenge||!selectedConfig)return;setBusy(true);setError('');
+      try{
+        const fileIds=new Set(questions?visibleQuestions(questions,techAnswers).filter(q=>q.type==='file').map(q=>q.id):[]);
+        await publicCaptureApi(token,{...techAnswers,...(customForm?{formRevision:selectedCampaign?.formRevision}:{}),privacyAcknowledged:data.consent,website:data.website,turnstileToken:challenge,requestId:requestId.current},Object.fromEntries(Object.entries(files as Record<string,File>).filter(([id])=>fileIds.has(id))));
+        setSuccess(true);setFiles({});
+      }catch(e){setError(e instanceof Error?e.message:'No se pudo enviar.');const api=(window as unknown as {turnstile?:Turnstile}).turnstile;if(widgetId.current)api?.reset(widgetId.current);setChallenge('');}
+      finally{setBusy(false);}
+    }}>
     {!campaigns.length && <p role="status" className="rounded-lg bg-orange-50 p-3 text-sm">Esta empresa no tiene campañas disponibles para postular en este momento.</p>}
     {techAnswers.preferredCampaign && !selectedConfig && <p role="status" className="rounded-lg bg-orange-50 p-3 text-sm">Esta campaña tiene pendiente la configuración del formulario. Contacta al responsable del enlace o selecciona otra campaña.</p>}
-    <TechCenterFields companyName={companyName} campaigns={campaigns} values={techAnswers} onChange={(key,value)=>setTechAnswers(previous=>changeCaptureAnswer(previous,key,value,campaigns))} />
+    <label className="block text-sm font-semibold">Selecciona la campaña para ver su formulario<select className="mt-2 w-full rounded-lg border border-slate-200 p-3" required value={String(techAnswers.preferredCampaign||'')} onChange={e=>changeAnswer('preferredCampaign',e.target.value)}><option value="">Selecciona campaña</option>{campaigns.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+    {questions?<CaptureFormFields key={selectedCampaign?.id} questions={questions} hideCampaign values={techAnswers} onChange={changeAnswer} onFile={(id,file)=>{
+      if(file&&file.size>2*1024*1024){setError('Cada adjunto debe pesar como máximo 2 MB.');setFiles(previous=>{const next={...previous};delete next[id];return next;});return;}
+      setFiles(previous=>{const next={...previous};if(file)next[id]=file;else delete next[id];return next;});
+    }}/>:<TechCenterFields hideCampaign companyName={companyName} campaigns={campaigns} values={Object.fromEntries(Object.entries(techAnswers).filter((entry):entry is [string,string]=>typeof entry[1]==='string'))} onChange={changeAnswer} />}
     <div className="hidden" aria-hidden="true"><input tabIndex={-1} autoComplete="off" value={data.website} onChange={e => setData({ ...data, website: e.target.value })} /></div>
     <section className="space-y-4 border-t border-slate-200 pt-5">
       <h2 className="text-sm font-bold text-[#143A56]">6. PROTECCIÓN DE DATOS PERSONALES</h2>

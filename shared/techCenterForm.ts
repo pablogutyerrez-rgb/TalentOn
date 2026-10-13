@@ -1,7 +1,7 @@
 export const TECH_CENTER_FORM = 'techcenter-v1';
 export const COMPANY_CAPTURE_FORM = 'company-capture-v1';
 import {captureConfig, type CaptureCampaignConfig} from './captureCampaignConfig';
-export type CaptureCampaignOption = { id: string; name: string; configuration?: CaptureCampaignConfig | null };
+export type CaptureCampaignOption = { id: string; name: string; configuration?: CaptureCampaignConfig | null; form?:import('./captureFormSchema').CaptureForm|null; formRevision?:number|null };
 export const companyText = (text: string, name: string) => text.replaceAll('TECH CENTER', name);
 export const techCenterIntro = [
   'Somos TECH CENTER, una empresa peruana especializada en servicios de telemarketing, Contact Center y BPO, que trabaja con empresas nacionales e internacionales.',
