@@ -11,12 +11,13 @@ const CaptureFormBuilder=React.lazy(()=>import('../components/capture/CaptureFor
 export function CaptacionView() {
   const { currentUser } = useTalent();
   const [screen,setScreen]=useState<'capture'|'forms'>('capture');
+  const canEditForms=currentUser.globalAdmin||(['RECLUTADOR','ANALISTA_SELECCION'].includes(currentUser.role)&&currentUser.allowedModules?.includes('SELECCION'));
   return <div className="space-y-4">
-    {currentUser.globalAdmin&&<nav aria-label="Gestión de captación" className="flex gap-2 border-b border-slate-200">
+    {canEditForms&&<nav aria-label="Gestión de captación" className="flex gap-2 border-b border-slate-200">
       <button className="rounded-t-lg px-4 py-3 text-sm" aria-current={screen==='capture'?'page':undefined} onClick={()=>setScreen('capture')}>Captaciones y enlaces</button>
       <button className="rounded-t-lg px-4 py-3 text-sm font-semibold text-[#143A56]" aria-current={screen==='forms'?'page':undefined} onClick={()=>setScreen('forms')}>Formularios · Crear y editar</button>
     </nav>}
-    {screen==='forms'&&currentUser.globalAdmin?<React.Suspense fallback={<p>Cargando editor…</p>}><CaptureFormBuilder/></React.Suspense>:currentUser.role === 'RECLUTADOR' ? <RecruiterCaptacionView /> : <CaptureManagementView />}
+    {screen==='forms'&&canEditForms?<React.Suspense fallback={<p>Cargando editor…</p>}><CaptureFormBuilder/></React.Suspense>:currentUser.role === 'RECLUTADOR' ? <RecruiterCaptacionView /> : <CaptureManagementView />}
   </div>;
 }
 function RecruiterCaptacionView() {

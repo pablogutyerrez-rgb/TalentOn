@@ -6,7 +6,9 @@ Worker publicado: `3c8b2dbc-bae7-4e5c-8d54-3fc5f4bf6380`. Consulta PostgreSQL de
 
 ## Uso
 
-**Selección → Captación → Formularios · Crear y editar**. Se conserva el permiso previo de administrador global; reclutadores y analistas mantienen su gestión habitual y no pueden modificar formularios de otras personas.
+Actualización de permisos 018 (13/10/2026): aplicada con respaldo privado de 84 tablas y restauración aislada verificada (`supabase/.local/multiempresa-backup-2026-10-13T19-01-45-859Z.json`). Typecheck, build, 140 pruebas Worker y cuatro suites SQL aprobados. Nuevas pruebas verifican lectura, borrador/publicación para ambos roles y rechazo de otra empresa/campaña, módulo revocado y administración de empresas. No se alteraron usuarios, formularios ni respuestas históricas.
+
+**Selección → Captación → Formularios · Crear y editar**. Disponible para administrador global, Reclutador y Analista de Selección (estos dos requieren el módulo Selección habilitado). La migración 018 limita lectura, borrador y publicación a empresas/campañas autorizadas; no concede administración de empresas, usuarios ni catálogos. El formulario es compartido por campaña, no personal de cada reclutador; se conserva el control de versiones para evitar sobrescrituras.
 
 1. Elegir empresa y campaña del catálogo real.
 2. Completar edad mínima/máxima opcional, jornadas ofrecidas, horarios y modalidad.
@@ -29,7 +31,7 @@ Tipos: texto corto, texto largo, número, selección única, selección múltipl
 
 ## Servidor y datos
 
-- /api/capture/forms GET/POST: sesión Supabase, administrador global y RPC service-only.
+- /api/capture/forms GET/POST: sesión Supabase, roles autorizados y RPC service-only. Supabase verifica nuevamente rol, módulo, empresa y campaña; no confía en los IDs enviados por el cliente.
 - Nueva tabla talent_org.capture_forms: borrador, versión publicada y versión de concurrencia. Publicación y condiciones se guardan en la misma transacción; conflicto de versión devuelve 409 sin sobrescribir.
 - Formularios publicados se obtienen por empresa del enlace, nunca por empresa enviada por el navegador. Borradores no se exponen.
 - Servidor valida tipos, alternativas, rangos, campos obligatorios y condiciones. Rechaza identificadores duplicados, ciclos y referencias inválidas.

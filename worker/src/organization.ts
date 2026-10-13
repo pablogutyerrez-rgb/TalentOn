@@ -12,10 +12,11 @@ export async function organizationUserGuard(env:SupabaseEnv,actor:SessionProfile
  if(!r.ok)throw new SupabaseError(403,'FORBIDDEN');
 }
 export async function organizationRequest(request:Request,env:SupabaseEnv,actor:SessionProfile){
+ const canEditForms=actor.globalAdmin||(['RECLUTADOR','ANALISTA_SELECCION'].includes(actor.role)&&actor.allowedModules.includes('SELECCION'));
  const path=new URL(request.url).pathname;let name:string;let body:Record<string,unknown>={p_actor:actor.authUserId};
  if(path==='/api/org'&&request.method==='GET')name='talent_org_directory';
  else if(path==='/api/capture/forms'&&request.method==='GET'){
-  if(!actor.globalAdmin)throw new SupabaseError(403,'FORBIDDEN');
+  if(!canEditForms)throw new SupabaseError(403,'FORBIDDEN');
   name='talent_org_capture_forms';
  }
  else if(path==='/api/org/capture-settings'&&request.method==='GET'){
@@ -29,7 +30,7 @@ export async function organizationRequest(request:Request,env:SupabaseEnv,actor:
  else if(path==='/api/org/summary'&&request.method==='POST'){
   name='talent_org_summary';const input=await request.json<Record<string,unknown>>();body={...body,p_company:input.companyId||null,p_assignment:input.companyCampaignId||null};
  }else{
-  if(!actor.globalAdmin)throw new SupabaseError(403,'FORBIDDEN');
+  if(!(path==='/api/capture/forms'?canEditForms:actor.globalAdmin))throw new SupabaseError(403,'FORBIDDEN');
   let input:Record<string,unknown>;
   try{input=path==='/api/capture/forms'?await captureBody(request,131072):await request.json<Record<string,unknown>>();}
   catch(e){throw new SupabaseError(e instanceof CaptureError?e.status:400,e instanceof Error?e.message:'INVALID_BODY');}

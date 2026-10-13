@@ -343,6 +343,31 @@ describe('Transición relacional PostgreSQL 17',()=>{
    const audit=(await db.query("select count(*)::int as n from talent_org.audit_events where table_name='capture_forms' and entity_id=$1",[id])).rows[0].n;expect(audit).toBe(3);
   }finally{failNextCaptureCommit=false;env.ORG_ENABLED=undefined;}
  });
+ it('reclutador y analista editan/publican solo formularios de campañas autorizadas',async()=>{
+  env.ORG_ENABLED='true';
+  try{
+   const id='talent-up:bitel-portabilidad',companyId='talent-up';
+   for(const role of ['RECLUTADOR','ANALISTA_SELECCION']){
+    const uid=crypto.randomUUID();
+    await db.query('insert into auth.users(id) values ($1)',[uid]);
+    await db.query("insert into talent.profiles(company_id,id,auth_user_id,username,display_name,role,status) values ('tenant',$1::text,$1::uuid,$2,'CI form editor',$3,'ACTIVO')",[uid,'ci.editor.'+role.toLowerCase(),role]);
+    authUsers.set(uid,{id:uid});
+    await db.query('select public.talent_org_member_save($1,$2,$3,$4,true,false,$5,null)',[admin,uid,companyId,role,'{'+id+'}']);
+    const rows=await call('/api/capture/forms','GET',undefined,uid,companyId);
+    expect(rows.status).toBe(200);expect(rows.data.map((r:any)=>r.id)).toEqual([id]);
+    const current=rows.data[0],bundle={form:defaultCaptureForm(),configuration:captureConfiguration};
+    const params={companyId,id,bundle,publish:false,version:current.version,formVersion:current.formVersion};
+    const saved=await call('/api/capture/forms','POST',params,uid,companyId);expect(saved.status).toBe(200);
+    expect((await call('/api/capture/forms','POST',{...params,publish:true,formVersion:saved.data.formVersion},uid,companyId)).status).toBe(200);
+    expect((await call('/api/capture/forms','POST',{...params,companyId:'techcenter',id:'techcenter:bitel-portabilidad'},uid,companyId)).status).toBe(403);
+    expect((await call('/api/capture/forms','POST',{...params,id:'talent-up:bitel-migraciones'},uid,companyId)).status).toBe(403);
+    expect((await call('/api/org/companies','POST',{id:'intrusion',name:'Intrusión'},uid,companyId)).status).toBe(403);
+    await db.query("update talent.user_modules set archived_at=now() where company_id=$1 and user_id=$2 and module='SELECCION'",[companyId,uid]);
+    expect((await call('/api/capture/forms','GET',undefined,uid,companyId)).status).toBe(403);
+    await expect(db.query('select public.talent_org_capture_form_save($1,$2,$3,null,null,$4,false)',[uid,companyId,id,JSON.stringify(bundle)])).rejects.toThrow();
+   }
+  }finally{env.ORG_ENABLED=undefined;}
+ });
  it('creación y edición global guarda accesos de dos empresas con rollback y CAS',async()=>{
   env.ORG_ENABLED='true';
   try {
