@@ -8,6 +8,7 @@ import { ActiveNavModule, UserProfile } from './types';
 
 const Candidate360Modal = lazy(() => import('./components/candidates/Candidate360Modal').then(module => ({ default: module.Candidate360Modal })));
 const DashboardView = lazy(() => import('./views/DashboardView').then(module => ({ default: module.DashboardView })));
+const GlobalDashboardView = lazy(() => import('./views/GlobalDashboardView').then(module => ({ default: module.GlobalDashboardView })));
 const ConvocatoriasView = lazy(() => import('./views/ConvocatoriasView').then(module => ({ default: module.ConvocatoriasView })));
 const MisConvocatoriasView = lazy(() => import('./views/MisConvocatoriasView').then(module => ({ default: module.MisConvocatoriasView })));
 const CandidatosView = lazy(() => import('./views/CandidatosView').then(module => ({ default: module.CandidatosView })));
@@ -104,7 +105,7 @@ const MainLayout: React.FC = () => {
             
             {/* SELECCIÓN MODULE */}
             {(activeModule === 'INICIO' || activeModule === 'SELECCION_DASHBOARD' || (activeModule as string) === 'DASHBOARD') && (
-              <DashboardView />
+              currentUser.globalAdmin&&!currentUser.managedCompany?<GlobalDashboardView/>:<DashboardView />
             )}
             
             {(activeModule === 'CONVOCATORIAS' || activeModule === 'SELECCION_CONVOCATORIAS') && (
@@ -121,7 +122,7 @@ const MainLayout: React.FC = () => {
 
             {/* FORMACIÓN & OJT MODULE */}
             {activeModule === 'FORMACION_DASHBOARD' && (
-              <FormacionDashboardView />
+              currentUser.globalAdmin&&!currentUser.managedCompany?<GlobalDashboardView/>:<FormacionDashboardView />
             )}
 
             {activeModule === 'FORMACION_CAPACITACIONES' && (
@@ -147,7 +148,7 @@ const MainLayout: React.FC = () => {
 
             {/* ANALÍTICA & CONFIGURACIÓN & USUARIOS RBAC */}
             {activeModule === 'ANALITICA' && (
-              <AnaliticaView />
+              currentUser.globalAdmin&&!currentUser.managedCompany?<GlobalDashboardView/>:<AnaliticaView />
             )}
             
             {activeModule === 'ADMIN_USUARIOS' && (

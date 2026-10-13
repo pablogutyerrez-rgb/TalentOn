@@ -398,6 +398,7 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       nickname: userData.nickname ? sanitizeDisplayName(userData.nickname, '') : '',
       tagline: userData.tagline ? sanitizeDisplayName(userData.tagline, '') : '',
       companyId: userData.companyId || currentUser.companyId,
+      companyAccess: userData.companyAccess,
     };
     await workerApi('/api/users', { method: 'POST', body: JSON.stringify(payload) });
     return normalizeUserIdentity({ ...userData, id: '', status: userData.status || 'ACTIVO' });
@@ -427,6 +428,7 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       nickname: typeof data.nickname === 'string' ? sanitizeDisplayName(data.nickname, '') : undefined,
       tagline: typeof data.tagline === 'string' ? sanitizeDisplayName(data.tagline, '') : undefined,
       companyId: data.companyId || existingUser?.companyId || currentUser.companyId,
+      companyAccess: data.companyAccess,
     }).filter(([, value]) => value !== undefined));
     await workerApi(`/api/users/${encodeURIComponent(userId)}/access`, { method: 'PATCH', body: JSON.stringify(normalizedData) });
     if (currentUser.id === userId) {

@@ -1,5 +1,7 @@
 # Contexto maestro — Talent-On
 
+Actualización — 13 octubre 2026: Talent-On incorpora medición consolidada de las empresas y asignación multiempresa dentro de crear/editar usuarios. Migraciones 013–014 aplicadas con respaldos restaurados; Worker `15799f89-a0d3-47de-a61d-b1831aa5b482`. Ver `TALENT_ON_CONSOLIDADO.md` para fórmulas, filtros, permisos y pruebas. La nota del 12 de octubre describe la activación anterior.
+
 Nota vigente — 12 octubre 2026: las secciones siguientes conservan el contexto histórico de Firebase. La arquitectura activa ahora es Supabase Auth/PostgreSQL + Worker/R2, documentada en `SUPABASE_TRANSICION_OPERATIVA.md`; repositorio actual `pablogutyerrez-rgb/TalentOn` y frontend `https://talent-on.up.railway.app`. Firebase no debe reactivarse. Multiempresa: migraciones 007–012 aplicadas; Worker activo con ORG_ENABLED=true y versión 14057b93-f35c-48cc-bbf5-c935b2451b2d. Consultar `SUPABASE_MULTIEMPRESA_EJECUCION.md` para validaciones y límites funcionales.
 
 Contexto histórico: 1 de octubre de 2026 (America/Lima).

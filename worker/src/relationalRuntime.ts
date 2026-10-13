@@ -29,6 +29,8 @@ export class RelationalRuntime {
  private changed=new Map<string,{table:string;row:D;expected:number|null}>();
  private documents=new Map<string,D>();
  private resetIds=new Set<string>();
+ private companyGrants?:{userId:string;grants:unknown[]};
+ setCompanyGrants(userId:string,grants:unknown[]){this.companyGrants={userId,grants};}
  readonly newAuthIds:string[]=[];
  committed=false;
  private authAfterCommit:Array<()=>Promise<void>>=[];
@@ -39,7 +41,7 @@ export class RelationalRuntime {
   const r=await fetch(this.env.SUPABASE_URL!.replace(/\/$/,'')+'/rest/v1/rpc/'+name,{method:'POST',headers:supabaseServerHeaders(this.env),body:JSON.stringify(data)});
   if(!r.ok){const e=await r.json<{code?:string;message?:string}>().catch(()=>({} as any));const codes:Record<string,string>={PT409:'CAPTURE_RETRY','23505':'DUPLICATE_RECORD','23503':'RELATED_RECORD_INVALID','23514':'DATA_VALIDATION_FAILED','23502':'DATA_VALIDATION_FAILED','22007':'INVALID_DATA_FORMAT','22008':'INVALID_DATA_FORMAT','22P02':'INVALID_DATA_FORMAT'};throw new SupabaseError(e.code==='PT409'||e.code==='23505'?409:r.status,({TALENT_LAST_GLOBAL_ADMIN_REQUIRED:'LAST_GLOBAL_ADMIN_REQUIRED',TALENT_GLOBAL_ADMIN_ROLE_REQUIRED:'GLOBAL_ADMIN_ROLE_REQUIRED'} as Record<string,string>)[e.message||'']||codes[e.code||'']||(e.message==='PASSWORD_CHANGE_REQUIRED'?'PASSWORD_CHANGE_REQUIRED':'RELATIONAL_WRITE_FAILED'));}
   // PostgREST returns an empty body for the void commit RPC.
-  if(name==='talent_runtime_commit')return undefined as T;
+  if(name==='talent_runtime_commit'||name==='talent_org_user_commit')return undefined as T;
   return r.json<T>();
  }
  async load(){this.hash=this.publicToken?await digest(this.publicToken):null;this.snapshot=this.actorId&&this.env.ORG_ENABLED==='true'?await this.rpc('talent_org_snapshot',{p_actor:this.actorId,p_company:this.env.ORG_COMPANY}):await this.rpc('talent_runtime_snapshot',{p_actor:this.actorId,p_public_hash:this.hash});return this;}
@@ -167,7 +169,9 @@ export class RelationalRuntime {
   const priority=(p:string)=>p.startsWith('users/')?0:p.startsWith('campaigns/')?1:p.startsWith('candidates/')&&!p.includes('/documents/')?2:p.startsWith('selectionTemplates/')?3:p.startsWith('selectionApplications/')?4:p.startsWith('trainings/')&&!p.includes('/participants/')?5:6;
   items.sort((a,b)=>priority(a[0])-priority(b[0]));
   for(const [path,data]of items)await this.serialize(path,data);
-  await this.rpc('talent_runtime_commit',{p_actor:this.actorId,p_public_hash:this.hash,p_company:this.companyId,p_revision:this.snapshot.revision,p_rows:Array.from(this.changed.values()),p_resets:Array.from(this.resetIds)});
+  const commit={p_actor:this.actorId,p_company:this.companyId,p_revision:this.snapshot.revision,p_rows:Array.from(this.changed.values()),p_resets:Array.from(this.resetIds)};
+  if(this.companyGrants)await this.rpc('talent_org_user_commit',{...commit,p_user:this.companyGrants.userId,p_grants:this.companyGrants.grants});
+  else await this.rpc('talent_runtime_commit',{...commit,p_public_hash:this.hash});
   this.committed=true;
   for(const work of this.authAfterCommit)await work();
  }

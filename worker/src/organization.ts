@@ -1,5 +1,9 @@
 import {supabaseServerHeaders,SupabaseError,type SupabaseEnv} from './supabase';
 import type {SessionProfile} from './supabaseSession';
+export async function organizationUserHome(env:SupabaseEnv,actor:SessionProfile,userId:string):Promise<string>{
+ const r=await fetch(env.SUPABASE_URL!.replace(/\/$/,'')+'/rest/v1/rpc/talent_org_user_home',{method:'POST',headers:supabaseServerHeaders(env),body:JSON.stringify({p_actor:actor.authUserId,p_user:userId})});
+ if(!r.ok)throw new SupabaseError(403,'FORBIDDEN');return r.json<string>();
+}
 export async function organizationUserGuard(env:SupabaseEnv,actor:SessionProfile,userId:string){
  const r=await fetch(env.SUPABASE_URL!.replace(/\/$/,'')+'/rest/v1/rpc/talent_org_user_edit_guard',{method:'POST',headers:supabaseServerHeaders(env),body:JSON.stringify({p_actor:actor.authUserId,p_user:userId})});
  if(!r.ok)throw new SupabaseError(403,'FORBIDDEN');
@@ -7,6 +11,10 @@ export async function organizationUserGuard(env:SupabaseEnv,actor:SessionProfile
 export async function organizationRequest(request:Request,env:SupabaseEnv,actor:SessionProfile){
  const path=new URL(request.url).pathname;let name:string;let body:Record<string,unknown>={p_actor:actor.authUserId};
  if(path==='/api/org'&&request.method==='GET')name='talent_org_directory';
+ else if(path==='/api/org/users'&&request.method==='GET')name='talent_org_users';
+ else if(path==='/api/org/dashboard'&&request.method==='POST'){
+  name='talent_org_dashboard';const input=await request.json<Record<string,unknown>>();body={...body,p_company:input.companyId||null,p_campaign:input.campaignId||null,p_from:input.from||null,p_to:input.to||null};
+ }
  else if(path==='/api/org/summary'&&request.method==='POST'){
   name='talent_org_summary';const input=await request.json<Record<string,unknown>>();body={...body,p_company:input.companyId||null,p_assignment:input.companyCampaignId||null};
  }else{

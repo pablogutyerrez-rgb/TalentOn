@@ -2,7 +2,7 @@ import { handleCapture, CaptureError } from './capture';
 import { relationalSession, changeFirstPassword, type SessionProfile } from './supabaseSession';
 import { RelationalRuntime, type RuntimeEnv } from './relationalRuntime';
 import { relationalIdentity } from './supabaseIdentity';
-import { organizationRequest,organizationUserGuard } from './organization';
+import { organizationRequest,organizationUserGuard,organizationUserHome } from './organization';
 import { SupabaseError, type SupabaseEnv } from './supabase';
 import { handleSelectionAdvanced, checkProcessApproval, checkProcessStage } from './selectionAdvanced';
 export interface Env extends SupabaseEnv, RuntimeEnv {
@@ -889,9 +889,16 @@ async function writeAdminAudit(env: Env, actor: Profile, action: string, entityI
   }, ['timestamp']);
 }
 
+function userCompanyGrants(env:Env,input:Record<string,unknown>):unknown[]|undefined{
+  if(input.companyAccess===undefined)return;
+  if(env.ORG_ENABLED!=='true'||!env.RELATIONAL_ACTOR?.globalAdmin)throw new SupabaseError(403,'FORBIDDEN');
+  if(!Array.isArray(input.companyAccess)||input.companyAccess.length>100||input.companyAccess.some(g=>!g||typeof g.companyId!=='string'||typeof g.enabled!=='boolean'||typeof g.allCampaigns!=='boolean'||!Array.isArray(g.scopes)||g.scopes.some((s:unknown)=>typeof s!=='string')||!modulesByRole[g.role as Role]))throw new SupabaseError(400,'ORG_VALIDATION_FAILED');
+  return input.companyAccess;
+}
 async function createUser(request: Request, env: Env, actor: Profile) {
   requireAdmin(actor);
   const input = await request.json<Record<string, unknown>>();
+  const grants=userCompanyGrants(env,input);
   const username = normalizeUsername(typeof input.username === 'string' ? input.username : '');
   const password = typeof input.password === 'string' ? input.password : '';
   const displayName = typeof input.displayName === 'string' ? input.displayName : '';
@@ -945,11 +952,13 @@ async function createUser(request: Request, env: Env, actor: Profile) {
     throw error;
   }
   await writeAdminAudit(env, actor, 'USER_PROVISIONED', uid, null, { username, role, status, companyId: resolvedCompanyId });
+  if(grants)env.RELATIONAL_RUNTIME!.setCompanyGrants(uid,grants);
   return response({ ok: true }, 200, cors(request, env));
 }
 async function updateUser(request: Request, env: Env, actor: Profile, uid: string) {
   requireAdmin(actor);
   const input = await request.json<Record<string, unknown>>();
+  const grants=userCompanyGrants(env,input);
   let existingDocument: FirestoreDocument;
   try { existingDocument = await firestore(env, `users/${uid}`); }
   catch (error) { if (error instanceof Error && error.message === 'FIRESTORE_404') throw new Error('Usuario no encontrado.'); throw error; }
@@ -1003,6 +1012,7 @@ async function updateUser(request: Request, env: Env, actor: Profile, uid: strin
     status,
   }, ['updatedAt']);
   await writeAdminAudit(env, actor, 'USER_ACCESS_UPDATED', uid, null, { role, modules, scope, status, companyId: resolvedCompanyId });
+  if(grants)env.RELATIONAL_RUNTIME!.setCompanyGrants(uid,grants);
   return response({ ok: true }, 200, cors(request, env));
 }
 async function resetPassword(request: Request, env: Env, actor: Profile, uid: string) {
@@ -1158,7 +1168,9 @@ async function relationalBootstrap(request:Request,env:Env,actor:Profile) {
     if(selection&&(actor.role==='ADMIN'||actor.role==='JEFE_SELECCION'||actor.role==='ANALISTA_SELECCION'&&(c.analystId===actor.uid||actor.scope.includes(String(c.campaignId)))||actor.role==='RECLUTADOR'&&(c.recruiterId===actor.uid||campaigns.some(cmp=>cmp.id===c.campaignId)))||formation&&(actor.role==='ADMIN'||actor.role==='JEFE_FORMACION'||cohorts.some(t=>t.id===c.trainingId))||talent&&(actor.role==='ADMIN'||actor.role==='JEFE_TALENTO'||actor.scope.includes(String(c.campaignId))||actor.scope.includes(actor.companyId)))candidates.push(c);
   }
   const rawUsers=await listFirestore(env,'users');
-  const users=(actor.role==='ADMIN'?rawUsers:rawUsers.filter(u=>u.id===actor.uid||actor.subordinateUserIds?.includes(String(u.id)))).map(u=>({id:u.id,companyId:u.companyId,email:u.username,name:u.displayName,role:u.role,status:u.status,avatarUrl:u.avatarUrl||'',nickname:u.nickname,tagline:u.tagline,phone:u.phone,jobTitle:u.jobTitle,allowedModules:u.allowedModules,scopeCampaignIds:u.scope,subordinateUserIds:u.subordinateUserIds}));
+  const users=env.RELATIONAL_ACTOR?.globalAdmin&&!env.RELATIONAL_ACTOR.managedCompany
+    ?await organizationRequest(new Request(new URL('/api/org/users',request.url)),env,env.RELATIONAL_ACTOR)
+    :(actor.role==='ADMIN'?rawUsers:rawUsers.filter(u=>u.id===actor.uid||actor.subordinateUserIds?.includes(String(u.id)))).map(u=>({id:u.id,companyId:u.companyId,email:u.username,name:u.displayName,role:u.role,status:u.status,avatarUrl:u.avatarUrl||'',nickname:u.nickname,tagline:u.tagline,phone:u.phone,jobTitle:u.jobTitle,allowedModules:u.allowedModules,scopeCampaignIds:u.scope,subordinateUserIds:u.subordinateUserIds}));
   return response({campaigns,cohorts,candidates,users},200,cors(request,env));
 }
 
@@ -1176,7 +1188,13 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   try{
     if(!originAllowed(request,env))throw new Error('ORIGIN_NOT_ALLOWED');
     const token=path.match(/^\/api\/public\/capture\/([a-f0-9]{48})$/)?.[1];
-    const actor=token?undefined:await relationalSession(request,env);
+    let actor=token?undefined:await relationalSession(request,env);
+    const adminTarget=path.match(/^\/api\/users\/([^/]+)\/(access|reset-password)$/);
+    if(actor?.globalAdmin&&adminTarget&&['PATCH','POST'].includes(request.method)){
+      const home=await organizationUserHome(env,actor,decodeURIComponent(adminTarget[1]));
+      const contextHeaders=new Headers(request.headers);contextHeaders.set('X-Talent-Company',home);
+      actor=await relationalSession(new Request(request.url,{headers:contextHeaders}),env);
+    }
     if(actor?.managedCompany&&path==='/api/capture/links'&&request.method==='POST'){const input=await request.clone().json<{companyCampaignId?:string}>();if(!actor.companyCampaigns?.includes(input.companyCampaignId||''))throw new SupabaseError(403,'COMPANY_CAMPAIGN_REQUIRED');}
     if(path.startsWith('/api/org')&&env.ORG_ENABLED==='true'&&actor)return response(await organizationRequest(request,env,actor),200,cors(request,env));
     const runtimeEnv={...env,ORG_COMPANY:actor?.companyId};
@@ -1188,7 +1206,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
     return result;
   }catch(error){
     await cleanup();
-    if(store&&scoped)for(const uid of store.newAuthIds)await relationalIdentity(scoped,'delete',{localId:uid}).catch(()=>{});
+    if(store&&scoped&&!store.committed)for(const uid of store.newAuthIds)await relationalIdentity(scoped,'delete',{localId:uid}).catch(()=>{});
     const code=error instanceof SupabaseError?error.code:error instanceof Error?error.message:'INTERNAL_ERROR';
     const status=error instanceof SupabaseError?error.status:code==='ORIGIN_NOT_ALLOWED'?403:500;
     return response({message:code},status,headers);

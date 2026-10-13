@@ -16,7 +16,8 @@ import {
   AlertCircle,
   Upload
 } from 'lucide-react';
-import { UserProfile, UserRole, AppModuleName } from '../../types';
+import { UserProfile, UserRole, AppModuleName, CompanyAccess } from '../../types';
+import { UserCompanyAccess } from '../common/UserCompanyAccess';
 import { useTalent } from '../../context/TalentContext';
 import { IdentityAvatar } from '../common/IdentityAvatar';
 import { sanitizeDisplayName } from '../../utils/identity';
@@ -132,7 +133,9 @@ export const UserModal: React.FC<UserModalProps> = ({
   onClose,
   userToEdit
 }) => {
-  const { campaigns, availableUsers, addUser, updateUser } = useTalent();
+  const { campaigns, availableUsers, addUser, updateUser, currentUser } = useTalent();
+  const [companyAccess,setCompanyAccess]=useState<CompanyAccess[]>();
+  const [saving,setSaving]=useState(false);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -266,6 +269,8 @@ export const UserModal: React.FC<UserModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(saving)return;
+    if(currentUser.globalAdmin&&(!companyAccess||!companyAccess.some(c=>c.enabled)||companyAccess.some(c=>c.enabled&&!c.allCampaigns&&!c.scopes.length))){setErrorMsg('Selecciona al menos una empresa y sus campañas. Espera a que termine la carga de permisos.');return;}
     const cleanName = sanitizeDisplayName(name, '');
     if (!cleanName || !email.trim()) {
       setErrorMsg('Nombre y usuario son obligatorios.');
@@ -277,6 +282,7 @@ export const UserModal: React.FC<UserModalProps> = ({
       return;
     }
 
+    setSaving(true);
     try {
       if (userToEdit) {
         await updateUser(userToEdit.id, {
@@ -290,6 +296,7 @@ export const UserModal: React.FC<UserModalProps> = ({
         scopeCampaignIds,
         subordinateUserIds,
         avatarUrl,
+        ...(currentUser.globalAdmin?{companyAccess}:{}),
         nickname: sanitizeDisplayName(nickname, ''),
         tagline: sanitizeDisplayName(tagline, '')
         });
@@ -309,6 +316,7 @@ export const UserModal: React.FC<UserModalProps> = ({
         scopeCampaignIds,
         subordinateUserIds,
         avatarUrl,
+        ...(currentUser.globalAdmin?{companyAccess}:{}),
         nickname: sanitizeDisplayName(nickname, ''),
         tagline: sanitizeDisplayName(tagline, ''),
         password,
@@ -328,6 +336,8 @@ export const UserModal: React.FC<UserModalProps> = ({
             : rawDetail;
       setErrorMsg(`No fue posible guardar el usuario: ${detail}`);
       return;
+    } finally {
+      setSaving(false);
     }
 
     onClose();
@@ -535,6 +545,7 @@ export const UserModal: React.FC<UserModalProps> = ({
             </div>
           </div>
 
+          {currentUser.globalAdmin&&<UserCompanyAccess userId={userToEdit?.authUserId||userToEdit?.id} defaultRole={role} value={companyAccess} onChange={setCompanyAccess}/>}
           {/* Role selection */}
           <div className="space-y-2">
             <label className="text-[11px] font-bold text-slate-800 uppercase tracking-wider flex items-center justify-between">
@@ -713,6 +724,7 @@ export const UserModal: React.FC<UserModalProps> = ({
             </button>
             <button
               type="submit"
+              disabled={saving||isProcessingPhoto||(currentUser.globalAdmin&&!companyAccess)}
               className="px-5 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 active:bg-sky-800 rounded-xl shadow-md shadow-sky-600/20 transition-all cursor-pointer flex items-center gap-1.5"
             >
               <Check className="w-4 h-4" />

@@ -16,6 +16,9 @@ export type AppModuleName =
   | 'ANALITICA'
   | 'ADMINISTRACION';
 
+export interface CompanyAccess {
+  companyId: string; role: UserRole; enabled: boolean; allCampaigns: boolean; scopes: string[]; version: number | null;
+}
 export interface UserProfile {
   id: string;
   companyId?: string;
@@ -23,6 +26,8 @@ export interface UserProfile {
   globalAdmin?: boolean;
   managedCompany?: boolean;
   companyCampaigns?: string[];
+  authUserId?: string;
+  companyAccess?: CompanyAccess[];
   name: string;
   role: UserRole;
   email: string;

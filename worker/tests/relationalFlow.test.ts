@@ -51,7 +51,7 @@ describe('Transición relacional PostgreSQL 17',()=>{
     if(fn==='talent_session_profile')result=await db.query('select public.talent_session_profile($1::uuid) as result',[body.p_auth]);
     else if(fn==='talent_runtime_snapshot')result=await db.query('select public.talent_runtime_snapshot($1::uuid,$2) as result',[body.p_actor,body.p_public_hash]);
     else if(fn==='talent_runtime_commit')result=await db.query('select public.talent_runtime_commit($1::uuid,$2,$3,$4,$5::jsonb,$6::text[]) as result',[body.p_actor,body.p_public_hash,body.p_company,body.p_revision,JSON.stringify(body.p_rows),body.p_resets||[]]);
-    else if(fn?.startsWith('talent_org_')){const keys=Object.keys(body);result=await db.query('select public.'+fn+'('+keys.map((k,i)=>k+'=> $'+(i+1)).join(',')+') as result',keys.map(k=>Array.isArray(body[k])?'{'+body[k].join(',')+'}':body[k]&&typeof body[k]==='object'?JSON.stringify(body[k]):body[k]));}
+    else if(fn?.startsWith('talent_org_')){const keys=Object.keys(body);result=await db.query('select public.'+fn+'('+keys.map((k,i)=>k+'=> $'+(i+1)).join(',')+') as result',keys.map(k=>['p_rows','p_grants'].includes(k)?JSON.stringify(body[k]):Array.isArray(body[k])?'{'+body[k].join(',')+'}':body[k]&&typeof body[k]==='object'?JSON.stringify(body[k]):body[k]));}
     else throw new Error('UNKNOWN_RPC '+fn);
     await db.exec('commit');return fn==='talent_runtime_commit'?new Response(null,{status:204}):Response.json(result.rows[0].result??null);
    }catch(e:any){await db.exec('rollback');console.log('SQL ERROR',e.code,e.message);return Response.json({code:e.code,message:e.message},{status:e.code==='PT409'?409:400});}
@@ -202,5 +202,31 @@ describe('Transición relacional PostgreSQL 17',()=>{
    expect((await call('/api/org/memberships','POST',{companyId:'talent-up',userId:trainer,role:'FORMADOR',enabled:false,allCampaigns:false,scopes:[],version:membership.data.version},admin)).status).toBe(200);
    expect((await call('/api/bootstrap','GET',undefined,trainer,'talent-up')).status).toBe(403);
   }finally{env.ORG_ENABLED=undefined;}
+ });
+ it('creación y edición global guarda accesos de dos empresas con rollback y CAS',async()=>{
+  env.ORG_ENABLED='true';
+  try {
+   const grants=['talent-up','techcenter'].map(companyId=>({companyId,role:'RECLUTADOR',enabled:true,allCampaigns:false,scopes:[companyId+':bitel-portabilidad'],version:null}));
+   const created=await call('/api/users','POST',{username:'ci.twocompanies',password:'CI-password-2026',displayName:'Two companies',role:'RECLUTADOR',module:['SELECCION'],companyAccess:grants});
+   expect(created.status).toBe(200);
+   const u=(await call('/api/bootstrap')).data.users.find((u:any)=>u.email==='ci.twocompanies');expect(u).toBeTruthy();
+   await db.query('update talent.profiles set must_change_password=false where auth_user_id=$1',[u.id]);authUsers.get(u.id).app_metadata={runtime_password_pending:false};
+   const session=await call('/api/session','GET',undefined,u.id);expect(session.status).toBe(200);expect(session.data.companies.map((c:any)=>c.id).sort()).toEqual(['talent-up','techcenter']);
+   expect((await call('/api/session','GET',undefined,u.id,'tenant')).status).toBe(403);
+   expect((await call('/api/bootstrap','GET',undefined,u.id,'konectados')).status).toBe(403);
+   expect((await call('/api/org/dashboard','POST',{},u.id)).status).toBe(403);
+   const list=(await call('/api/org')).data.memberships.filter((m:any)=>m.auth_user_id===u.id);
+   const edit=grants.map(g=>({...g,version:list.find((m:any)=>m.company_id===g.companyId).version,enabled:g.companyId==='talent-up'}));
+   const before=(await db.query('select display_name from talent.profiles where auth_user_id=$1',[u.id])).rows[0].display_name;
+   const failed=await call('/api/users/'+u.id+'/access','PATCH',{displayName:'Should rollback',role:'RECLUTADOR',status:'ACTIVO',module:['SELECCION'],companyAccess:edit.map(g=>g.companyId==='techcenter'?{...g,version:999}:g)});
+   expect(failed.status).toBe(409);expect((await db.query('select display_name from talent.profiles where auth_user_id=$1',[u.id])).rows[0].display_name).toBe(before);
+   expect((await call('/api/users/'+u.id+'/access','PATCH',{displayName:'One company',role:'RECLUTADOR',status:'ACTIVO',module:['SELECCION'],companyAccess:edit})).status).toBe(200);
+   expect((await call('/api/session','GET',undefined,u.id)).data.companies.map((c:any)=>c.id)).toEqual(['talent-up']);
+   expect((await call('/api/bootstrap','GET',undefined,u.id,'techcenter')).status).toBe(403);
+   expect((await call('/api/users/'+u.id+'/access','PATCH',{role:'ADMIN',companyAccess:grants},u.id,'talent-up')).status).not.toBe(200);
+   const homeCreate=await call('/api/users','POST',{username:'ci.companyhome',password:'CI-password-2026',displayName:'Company home',role:'RECLUTADOR',module:['SELECCION'],companyAccess:[grants[0]]},admin,'talent-up');expect(homeCreate.status).toBe(200);
+   const crossUser=(await call('/api/bootstrap')).data.users.find((v:any)=>v.email==='ci.companyhome');expect(crossUser.companyId).toBe('talent-up');
+   expect((await call('/api/users/'+crossUser.id+'/access','PATCH',{displayName:'Edited from Talent-On',role:'RECLUTADOR',status:'ACTIVO',module:['SELECCION']})).status).toBe(200);
+  } finally {env.ORG_ENABLED=undefined;}
  });
 });
