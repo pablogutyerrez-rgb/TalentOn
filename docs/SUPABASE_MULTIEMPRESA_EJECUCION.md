@@ -7,7 +7,7 @@
 - Respaldo lógico privado antes de cada aplicación en `supabase/.local/multiempresa-backup-*.json`, excluido de Git. Se restauraron 74 tablas inicialmente y 82 en aplicaciones posteriores en PostgreSQL WASM aislado, comprobando conteos y FK. Este respaldo cubre datos/esquema de aplicación, no credenciales de Supabase Auth ni objetos R2, que no se modificaron.
 - Acceso global inicial explícito: cuenta canónica existente `admin`, con membresías a Talent Up, Techcenter y Konectados. No se concedió acceso global a los demás usuarios ADMIN. Las empresas nuevas no recibieron datos operativos históricos.
 - Secrets `IDENTITY_HASH_SECRET` y `CAPTURE_HASH_SECRET` registrados en Worker durante la ejecución. No regenerarlos: son claves estables de identificación. Ningún valor se incorpora al repositorio.
-- Worker multiempresa **no desplegado ni activado**. `ORG_ENABLED` permanece ausente. Frontend nuevo pendiente de publicación. No confundir estructura aplicada con disponibilidad en Railway.
+- Worker multiempresa **no desplegado ni activado**. `ORG_ENABLED` permanece ausente. Código publicado en GitHub `talenton/main`, commit `a1f1e25`; despliegue Railway y CI aún sin confirmar. No confundir código publicado con disponibilidad en producción.
 
 ## Seguridad y comportamiento
 
@@ -28,7 +28,7 @@ Cambios administrativos usan versión esperada y bloqueos. Reasignar empresa/cam
 
 Las 12 migraciones y suites SQL `invariants`, `relational`, `first-password` y `multiempresa` pasaron en PostgreSQL 17 embebido. Typecheck frontend y Worker pasó. **110 pruebas Worker pasaron** usando una carpeta temporal dentro de `worker/node_modules` para evitar el error de acceso al temporal externo del sandbox. Una ejecución anterior a 012 confirmó build frontend. La última repetición de build encontró `EPERM` en `realpath` de Windows; no es evidencia de una regresión funcional, pero tampoco confirma el build final. El workflow PostgreSQL 17 incluye pruebas SQL y concurrencia; resultado remoto pendiente.
 
-La sesión pasó a un entorno con red restringida: PostgreSQL devolvió `ENOTFOUND`; resolución DNS de GitHub y Cloudflare devolvió `Acceso denegado`. No se pudo verificar 011 ni aplicar 012, desplegar Worker o publicar en GitHub. No desactivar TLS ni modificar certificados para solventar este bloqueo.
+La sesión pasó a un entorno con red restringida: PostgreSQL devolvió `ENOTFOUND`; resolución DNS de GitHub y Cloudflare devolvió `Acceso denegado`. No se pudo verificar 011 ni aplicar 012 o desplegar Worker. **Git push sí funcionó** y publicó `a1f1e25`; `gh run list` falló al conectar con `api.github.com`, por lo que no hay resultado CI confirmado. No desactivar TLS ni modificar certificados para solventar este bloqueo.
 
 ## Continuación autorizada cuando haya acceso de red
 
@@ -42,6 +42,6 @@ node --env-file=.env.local --env-file=.env.postgres.local scripts/apply-multiemp
 
 3. Verificar typecheck, tests Worker, build frontend y CI SQL. Mantener intactos los archivos de migraciones aplicadas.
 4. Agregar `ORG_ENABLED = "true"` en `[vars]` de `worker/wrangler.toml` y ejecutar `npm run deploy` dentro de `worker`. Verificar `/api/session`, `/api/org`, cambio de empresa, rechazo 401/403 y CORS en el dominio Railway real.
-5. Publicar los cambios en `talenton/main` (`pablogutyerrez-rgb/TalentOn`), comprobar CI y despliegue Railway. Probar selector, catálogo, asignaciones y operaciones con sesión autorizada; sin crear registros ficticios en producción.
+5. Publicar la activación en `talenton/main` (`pablogutyerrez-rgb/TalentOn`), comprobar CI y despliegue Railway. El código de integración ya está publicado. Probar selector, catálogo, asignaciones y operaciones con sesión autorizada; sin crear registros ficticios en producción.
 
 Los archivos principales modificados están en `src/components/common/OrganizationAdmin.tsx`, `CompanyCampaignPicker.tsx`, Header, formularios de convocatoria/captación, contexto/cliente HTTP; Worker `organization.ts`, `supabaseSession.ts`, `relationalRuntime.ts`, `index.ts`; migraciones 007–012, suites SQL/Worker, workflow y script de aplicación con respaldo.
