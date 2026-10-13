@@ -1,19 +1,20 @@
 import {supabaseServerHeaders,SupabaseError,type SupabaseEnv} from './supabase';
 type D=Record<string,any>;
 type Snapshot={companyId:string;revision:number;tables:Record<string,D[]>};
-export type RuntimeEnv=SupabaseEnv&{RELATIONAL_RUNTIME?:RelationalRuntime};
+export type RuntimeEnv=SupabaseEnv&{RELATIONAL_RUNTIME?:RelationalRuntime;ORG_ENABLED?:string;ORG_COMPANY?:string};
 const clone=<T>(v:T):T=>structuredClone(v);
 const clean=(v:D)=>Object.fromEntries(Object.entries(v).filter(([,x])=>x!==undefined));
 const date=(v:any)=>v?String(v).slice(0,10):null;
 const digest=async(v:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v)))).map(x=>x.toString(16).padStart(2,'0')).join('');
 const fields:Record<string,D>={
+ companies:{legalName:'legal_name',taxId:'tax_id',name:'name',managed:'catalog_managed'},
  profiles:{username:'username',uid:'auth_user_id',displayName:'display_name',nickname:'nickname',tagline:'tagline',avatarUrl:'avatar_url',phone:'phone',jobTitle:'job_title',role:'role',status:'status',enabled:'enabled',mustChangePassword:'must_change_password'},
- campaigns:{code:'code',title:'title',status:'status',vacancies:'vacancies',salaryBase:'salary_base',variableBonus:'variable_bonus',adminBonus:'admin_bonus',mobilityBonus:'mobility_bonus',processType:'process_type',managementType:'management_type',requestDate:'request_date',startDate:'start_date',endDate:'end_date',shift:'schedule',observations:'observations',assignedAnalystId:'assigned_analyst_id',allowOverTargetQuota:'allow_over_target'},
+ campaigns:{companyCampaignId:'company_campaign_id',code:'code',title:'title',status:'status',vacancies:'vacancies',salaryBase:'salary_base',variableBonus:'variable_bonus',adminBonus:'admin_bonus',mobilityBonus:'mobility_bonus',processType:'process_type',managementType:'management_type',requestDate:'request_date',startDate:'start_date',endDate:'end_date',shift:'schedule',observations:'observations',assignedAnalystId:'assigned_analyst_id',allowOverTargetQuota:'allow_over_target'},
  persons:{fullName:'full_name',firstName:'first_name',lastName:'last_name',birthDate:'birth_date',phone:'phone',email:'email',district:'district',address:'address',age:'age',experienceMonths:'experience_months',englishLevel:'english_level',avatarUrl:'avatar_url',currentStage:'current_stage',currentProcess:'current_process',captureOnly:'capture_only',documentType:'document_type',dni:'document_number',source:'source_name',cvUrl:'cv_url',observationsGeneral:'general_observations',recruiterId:'owner_id'},
  applications:{candidateId:'person_id',campaignId:'campaign_id',recruiterId:'recruiter_id',status:'status',stage:'stage',applicationDate:'application_date',closedAt:'closed_at',closeReason:'closure_reason',processSnapshot:'process_snapshot',originEventId:'capture_id'},
  training_groups:{code:'code',name:'name',campaignId:'campaign_id',trainerId:'trainer_id',coordinatorId:'coordinator_id',startDate:'start_date',endDate:'theory_end_date',ojtStartDate:'ojt_start_date',ojtEndDate:'ojt_end_date',totalDays:'theory_days',ojtTotalDays:'ojt_days',ojtExtensionDays:'extension_days',schedule:'schedule',modality:'modality',maxCapacity:'capacity',passingMinGrade:'passing_grade',status:'status',roomOrLink:'room_or_link',observations:'observations',trainerAssignmentNotes:'trainer_assignment_notes',trainerAssignedAt:'trainer_assigned_at',trainerAssignedBy:'trainer_assigned_by'},
  participants:{status:'status',trainingApproved:'training_approved'},
- capture_links:{ownerUid:'owner_id',active:'active'},
+ capture_links:{companyCampaignId:'company_campaign_id',ownerUid:'owner_id',active:'active'},
  captures:{candidateId:'person_id',linkId:'link_id',ownerUid:'owner_id',status:'status',conflict:'conflict'},
  process_templates:{campaignId:'campaign_id',familyId:'family_id',version:'revision',name:'name',description:'description',position:'position_name',rules:'rules'},
  message_templates:{campaignId:'campaign_id',name:'name',type:'communication_type',content:'body'},
@@ -36,12 +37,12 @@ export class RelationalRuntime {
  private hash:string|null=null;
  private async rpc<T>(name:string,data:D):Promise<T>{
   const r=await fetch(this.env.SUPABASE_URL!.replace(/\/$/,'')+'/rest/v1/rpc/'+name,{method:'POST',headers:supabaseServerHeaders(this.env),body:JSON.stringify(data)});
-  if(!r.ok){const e=await r.json<{code?:string;message?:string}>().catch(()=>({} as any));const codes:Record<string,string>={PT409:'CAPTURE_RETRY','23505':'DUPLICATE_RECORD','23503':'RELATED_RECORD_INVALID','23514':'DATA_VALIDATION_FAILED','23502':'DATA_VALIDATION_FAILED','22007':'INVALID_DATA_FORMAT','22008':'INVALID_DATA_FORMAT','22P02':'INVALID_DATA_FORMAT'};throw new SupabaseError(e.code==='PT409'||e.code==='23505'?409:r.status,codes[e.code||'']||(e.message==='PASSWORD_CHANGE_REQUIRED'?'PASSWORD_CHANGE_REQUIRED':'RELATIONAL_WRITE_FAILED'));}
+  if(!r.ok){const e=await r.json<{code?:string;message?:string}>().catch(()=>({} as any));const codes:Record<string,string>={PT409:'CAPTURE_RETRY','23505':'DUPLICATE_RECORD','23503':'RELATED_RECORD_INVALID','23514':'DATA_VALIDATION_FAILED','23502':'DATA_VALIDATION_FAILED','22007':'INVALID_DATA_FORMAT','22008':'INVALID_DATA_FORMAT','22P02':'INVALID_DATA_FORMAT'};throw new SupabaseError(e.code==='PT409'||e.code==='23505'?409:r.status,({TALENT_LAST_GLOBAL_ADMIN_REQUIRED:'LAST_GLOBAL_ADMIN_REQUIRED',TALENT_GLOBAL_ADMIN_ROLE_REQUIRED:'GLOBAL_ADMIN_ROLE_REQUIRED'} as Record<string,string>)[e.message||'']||codes[e.code||'']||(e.message==='PASSWORD_CHANGE_REQUIRED'?'PASSWORD_CHANGE_REQUIRED':'RELATIONAL_WRITE_FAILED'));}
   // PostgREST returns an empty body for the void commit RPC.
   if(name==='talent_runtime_commit')return undefined as T;
   return r.json<T>();
  }
- async load(){this.hash=this.publicToken?await digest(this.publicToken):null;this.snapshot=await this.rpc('talent_runtime_snapshot',{p_actor:this.actorId,p_public_hash:this.hash});return this;}
+ async load(){this.hash=this.publicToken?await digest(this.publicToken):null;this.snapshot=this.actorId&&this.env.ORG_ENABLED==='true'?await this.rpc('talent_org_snapshot',{p_actor:this.actorId,p_company:this.env.ORG_COMPANY}):await this.rpc('talent_runtime_snapshot',{p_actor:this.actorId,p_public_hash:this.hash});return this;}
  get companyId(){return this.snapshot.companyId;}
  rows(table:string){return this.snapshot.tables[table]||[];}
  private find(table:string,id:string){return this.rows(table).find(x=>String(x.id)===id);}
@@ -103,7 +104,7 @@ export class RelationalRuntime {
  async get(path:string):Promise<D|undefined>{
   if(this.documents.has(path))return clone(this.documents.get(path));
   const [root,id,child,childId]=path.split('/');let out:D|undefined;
-  const names:D={users:'profiles',campaigns:'campaigns',candidates:'persons',trainings:'training_groups',captureLinks:'capture_links',captations:'captures',selectionApplications:'applications',selectionMessages:'message_templates',attendanceUnlockRequests:'attendance_unlocks'};
+  const names:D={companies:'companies',users:'profiles',campaigns:'campaigns',candidates:'persons',trainings:'training_groups',captureLinks:'capture_links',captations:'captures',selectionApplications:'applications',selectionMessages:'message_templates',attendanceUnlockRequests:'attendance_unlocks'};
   const row=this.find(names[root]||root,id);
   if(root==='selectionTemplates')out=this.template(id);
   else if(root==='selectionTemplateFamilies'){const ts=this.rows('process_templates').filter(t=>t.family_id===id).sort((a,b)=>b.revision-a.revision);if(ts[0])out={id,companyId:this.companyId,campaignId:ts[0].campaign_id,version:ts[0].revision,latestId:ts[0].id};}
@@ -114,7 +115,7 @@ export class RelationalRuntime {
   else if(row){
    out=this.project(names[root],row);
    if(root==='users'){
-    out={...out,uid:row.auth_user_id,name:row.display_name,module:this.relate('user_modules','user_id',id).map(m=>m.module),allowedModules:this.relate('user_modules','user_id',id).map(m=>m.module),scope:this.relate('campaign_assignments','user_id',id).filter(a=>a.assignment_kind==='SCOPE').map(a=>a.campaign_id),subordinateUserIds:this.relate('supervision','supervisor_id',id).map(s=>s.subordinate_id)};
+    out={...out,uid:row.auth_user_id||row.annotations?.canonicalAuthId||row.id,name:row.display_name,module:this.relate('user_modules','user_id',id).map(m=>m.module),allowedModules:this.relate('user_modules','user_id',id).map(m=>m.module),scope:this.relate('campaign_assignments','user_id',id).filter(a=>a.assignment_kind==='SCOPE').map(a=>a.campaign_id),subordinateUserIds:this.relate('supervision','supervisor_id',id).map(s=>s.subordinate_id)};
    }else if(root==='campaigns'){
     const r=this.relate('campaign_assignments','campaign_id',id).filter(a=>a.assignment_kind==='RESPONSIBLE');
     const people=await Promise.all(r.map(async a=>({userId:a.user_id,userName:(await this.get('users/'+a.user_id))?.displayName,userRole:this.find('profiles',a.user_id)?.role,target:a.target||0,hiredCount:this.rows('hiring').filter(h=>h.status==='CONTRATADO'&&this.find('applications',h.application_id)?.campaign_id===id&&this.find('applications',h.application_id)?.recruiter_id===a.user_id).length,isDirectResponsible:a.annotations?.isDirectResponsible})));
@@ -191,8 +192,17 @@ export class RelationalRuntime {
    return;
   }
   if(root==='candidates'&&!child){
+   let identityId:string|undefined;
+   const documentNumber=String(d.dni||d.documentNumber||'').trim().toUpperCase();
+   if(this.env.ORG_ENABLED==='true'&&!this.find('persons',id)&&documentNumber){
+    if(!this.env.IDENTITY_HASH_SECRET)throw new SupabaseError(503,'IDENTITY_SERVICE_NOT_CONFIGURED');
+    const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(this.env.IDENTITY_HASH_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+    const signed=await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(JSON.stringify(['PE',String(d.documentType||'DNI').toUpperCase(),documentNumber])));
+    const fingerprint=Array.from(new Uint8Array(signed)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    identityId=await this.rpc('talent_org_identity_reserve',{p_actor:this.actorId,p_company:this.companyId,p_public_hash:this.hash,p_fingerprint:fingerprint});
+   }
    const existing=this.find('persons',id);const appId=d.selectionApplicationId||existing?.current_application_id||(d.campaignId?'APP:'+id+':'+d.campaignId:null);
-   this.base('persons',id,d,{full_name:d.fullName||'',district:d.district||d.city||'',birth_date:date(d.birthDate),owner_id:d.recruiterId||null,current_application_id:appId});
+   this.base('persons',id,d,{...(identityId?{shared_identity_id:identityId}:{}),full_name:d.fullName||'',district:d.district||d.city||'',birth_date:date(d.birthDate),owner_id:d.recruiterId||null,current_application_id:appId});
    if(appId&&d.campaignId){
     const app=this.find('applications',appId);
     this.put('applications',appId,{person_id:id,campaign_id:d.campaignId,recruiter_id:d.recruiterId,status:d.selectionActive===false?'CERRADA':app?.status||'ACTIVA',stage:d.selection?.stage||app?.stage||'NUEVO',selection_status:d.selection?.status||app?.selection_status||'ACTIVO',application_date:date(d.applicationDate)||date(new Date().toISOString()),template_id:d.selectionProcessSnapshot?.id||app?.template_id||null,process_snapshot:d.selectionProcessSnapshot||app?.process_snapshot||null,process_checks:d.selection?.processChecks||app?.process_checks||{},annotations:{...app?.annotations,selectionMeta:Object.fromEntries(Object.entries(d.selection||{}).filter(([k])=>!['stage','status','callId','scores','contactHistory','evaluations','evaluationsList','documents','observations','traceability','interviewResult','technicalVerification','processChecks'].includes(k))),initialized:!!d.selectionApplicationId}});

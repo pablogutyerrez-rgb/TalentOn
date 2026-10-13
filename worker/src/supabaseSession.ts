@@ -5,6 +5,7 @@ export interface SessionProfile {
  id: string; authUserId: string; companyId: string; username: string; name: string;
  role: string; status: string; mustChangePassword: boolean; version: number;
  allowedModules: string[];
+ companies?: {id:string;name:string;managed:boolean}[];globalAdmin?:boolean;managedCompany?:boolean;scope?:string[];companyCampaigns?:string[];
 }
 function base(env: SupabaseEnv) {
  const url = new URL(env.SUPABASE_URL || '');
@@ -13,7 +14,7 @@ function base(env: SupabaseEnv) {
 }
 async function rpc<T>(env: SupabaseEnv, name: string, body: object): Promise<T> {
  const result = await fetch(base(env)+'/rest/v1/rpc/'+name,{method:'POST',headers:supabaseServerHeaders(env),body:JSON.stringify(body)});
- if (!result.ok) throw new SupabaseError(result.status,'SUPABASE_REQUEST_FAILED');
+ if (!result.ok){const error=await result.json<{code?:string}>().catch(()=>({} as {code?:string}));throw new SupabaseError(error.code==='42501'?403:result.status,error.code==='42501'?'FORBIDDEN':'SUPABASE_REQUEST_FAILED');}
  return result.json<T>();
 }
 export async function relationalSession(request: Request, env: SupabaseEnv, allowPasswordChange=false): Promise<SessionProfile> {
@@ -27,6 +28,10 @@ export async function relationalSession(request: Request, env: SupabaseEnv, allo
  if (!profile || profile.authUserId!==user.id || profile.status!=='ACTIVO') throw new SupabaseError(403,'ACCOUNT_DISABLED');
  profile.mustChangePassword=profile.mustChangePassword||user.app_metadata?.runtime_password_pending===true;
  if (profile.mustChangePassword && !allowPasswordChange) throw new SupabaseError(403,'PASSWORD_CHANGE_REQUIRED');
+ if(!profile.mustChangePassword&&env.ORG_ENABLED==='true'){
+  const context=await rpc<SessionProfile>(env,'talent_org_context',{p_actor:user.id,p_company:request.headers.get('X-Talent-Company')||null});
+  return {...context,mustChangePassword:profile.mustChangePassword};
+ }
  return profile;
 }
 export async function changeFirstPassword(request: Request, env: SupabaseEnv): Promise<void> {

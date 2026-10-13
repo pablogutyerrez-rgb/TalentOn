@@ -40,4 +40,5 @@ jobs:
       - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/invariants.sql
       - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/relational.sql
       - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/first-password.sql
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/multiempresa.sql
       - run: python3 supabase/tests/concurrency.py

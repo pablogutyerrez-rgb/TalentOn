@@ -19,6 +19,10 @@ export type AppModuleName =
 export interface UserProfile {
   id: string;
   companyId?: string;
+  companies?: {id:string;name:string;managed:boolean}[];
+  globalAdmin?: boolean;
+  managedCompany?: boolean;
+  companyCampaigns?: string[];
   name: string;
   role: UserRole;
   email: string;
@@ -438,6 +442,7 @@ export interface ConvocatoriaStatusChange {
 }
 
 export interface CampaignCall {
+  companyCampaignId?: string;
   id: string;
   code: string;
   company: string; // Empresa

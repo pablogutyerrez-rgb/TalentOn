@@ -1,6 +1,6 @@
 // Adaptador DOCUMENTAL anterior, no conectado. No usar con schema talent relacional.
 // La adaptación de contratos al nuevo modelo se hará en una fase posterior.
-export interface SupabaseEnv { SUPABASE_URL?: string; SUPABASE_SECRET_KEY?: string; SUPABASE_SERVICE_ROLE_KEY?: string; SUPABASE_ALLOW_LOCAL?: string }
+export interface SupabaseEnv { SUPABASE_URL?: string; SUPABASE_SECRET_KEY?: string; SUPABASE_SERVICE_ROLE_KEY?: string; SUPABASE_ALLOW_LOCAL?: string;ORG_ENABLED?:string;ORG_COMPANY?:string;IDENTITY_HASH_SECRET?:string }
 const secretKey = (env: SupabaseEnv) => env.SUPABASE_SECRET_KEY || env.SUPABASE_SERVICE_ROLE_KEY;
 export function supabaseServerHeaders(env: SupabaseEnv): Record<string,string> { const key = secretKey(env); if (!key) throw new SupabaseError(503, 'SUPABASE_NOT_CONFIGURED'); return { apikey: key, ...(key.split('.').length === 3 ? { Authorization: `Bearer ${key}` } : {}), 'content-type': 'application/json' }; }
 export interface SupabaseDocument { path: string; data: Record<string, unknown>; version: number; updatedAt: string }

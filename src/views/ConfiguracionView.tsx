@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { DROPOUT_REASONS, DISCARD_REASONS, DOCUMENT_TYPES } from '../config/catalogs';
 import { useTalent } from '../context/TalentContext';
+import {OrganizationAdmin} from '../components/common/OrganizationAdmin';
 
 export const ConfiguracionView: React.FC = () => {
   const { setActiveModule, getSystemSettings, updateSystemSettings } = useTalent();
@@ -52,6 +53,7 @@ export const ConfiguracionView: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <OrganizationAdmin/>
       
       {/* Header */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-4">

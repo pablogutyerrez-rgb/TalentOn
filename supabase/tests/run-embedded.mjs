@@ -13,7 +13,7 @@ try {
   await db.exec(readFileSync(resolve('supabase/migrations',f),'utf8'));
   console.log('PASS migration '+f);
  }
- for(const f of ['invariants.sql','relational.sql','first-password.sql']) {
+ for(const f of ['invariants.sql','relational.sql','first-password.sql','multiempresa.sql']) {
   await db.exec(readFileSync(resolve('supabase/tests',f),'utf8'));
   console.log('PASS tests '+f);
  }

@@ -1,6 +1,8 @@
 # Contexto maestro — Talent-On
 
-Actualizado: 1 de octubre de 2026 (America/Lima).
+Nota vigente — 12 octubre 2026: las secciones siguientes conservan el contexto histórico de Firebase. La arquitectura activa ahora es Supabase Auth/PostgreSQL + Worker/R2, documentada en `SUPABASE_TRANSICION_OPERATIVA.md`; repositorio actual `pablogutyerrez-rgb/TalentOn` y frontend `https://talent-on.up.railway.app`. Firebase no debe reactivarse. Multiempresa: 007–010 aplicadas con respaldo restaurado en entorno aislado; 011 pendiente de confirmar y 012 pendiente de aplicar. Integración frontend/Worker implementada localmente; activación/publicación pendientes por restricciones del entorno. Consultar `SUPABASE_MULTIEMPRESA_EJECUCION.md` antes de desplegar.
+
+Contexto histórico: 1 de octubre de 2026 (America/Lima).
 
 ## 1. Propósito
 

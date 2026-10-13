@@ -13,8 +13,8 @@ let db:any,campaignId:string,personId:string,groupId:string;
 const objects=new Map<string,Uint8Array>();
 const authUsers=new Map<string,any>();
 const env={DATA_PROVIDER:'supabase',SUPABASE_URL:'https://sql-test.supabase.co',SUPABASE_SECRET_KEY:'sb_secret_test',ALLOWED_ORIGIN:'http://localhost:3000',PRODUCTION_ORIGIN:'https://example.test',MAX_UPLOAD_BYTES:'10485760',ATTENDANCE_TIME_ZONE_OFFSET:'-05:00',CAPTURE_HASH_SECRET:'test-only-key',DOCUMENTS:{put:async(k:string,v:any)=>{objects.set(k,new Uint8Array(await new Response(v).arrayBuffer()))},get:async(k:string)=>objects.has(k)?{body:objects.get(k),httpMetadata:{contentType:'application/pdf'}}:null,delete:async(k:string)=>{objects.delete(k)}}} as unknown as Env;
-async function call(path:string,method='GET',body?:any,actor=admin){
- const r=await worker.fetch(new Request('https://worker.test'+path,{method,headers:{Origin:'http://localhost:3000',Authorization:'Bearer '+actor,...(!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},...(body?{body:body instanceof FormData?body:JSON.stringify(body)}:{})}),env);
+async function call(path:string,method='GET',body?:any,actor=admin,company?:string){
+ const r=await worker.fetch(new Request('https://worker.test'+path,{method,headers:{Origin:'http://localhost:3000',Authorization:'Bearer '+actor,...(company?{'X-Talent-Company':company}:{}),...(!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},...(body?{body:body instanceof FormData?body:JSON.stringify(body)}:{})}),env);
  const data:any=await r.json().catch(()=>({}));
  if(!r.ok)console.log('FLOW ERROR',method,path,r.status,data);
  return {status:r.status,data};
@@ -51,6 +51,7 @@ describe('Transición relacional PostgreSQL 17',()=>{
     if(fn==='talent_session_profile')result=await db.query('select public.talent_session_profile($1::uuid) as result',[body.p_auth]);
     else if(fn==='talent_runtime_snapshot')result=await db.query('select public.talent_runtime_snapshot($1::uuid,$2) as result',[body.p_actor,body.p_public_hash]);
     else if(fn==='talent_runtime_commit')result=await db.query('select public.talent_runtime_commit($1::uuid,$2,$3,$4,$5::jsonb,$6::text[]) as result',[body.p_actor,body.p_public_hash,body.p_company,body.p_revision,JSON.stringify(body.p_rows),body.p_resets||[]]);
+    else if(fn?.startsWith('talent_org_')){const keys=Object.keys(body);result=await db.query('select public.'+fn+'('+keys.map((k,i)=>k+'=> $'+(i+1)).join(',')+') as result',keys.map(k=>Array.isArray(body[k])?'{'+body[k].join(',')+'}':body[k]&&typeof body[k]==='object'?JSON.stringify(body[k]):body[k]));}
     else throw new Error('UNKNOWN_RPC '+fn);
     await db.exec('commit');return fn==='talent_runtime_commit'?new Response(null,{status:204}):Response.json(result.rows[0].result??null);
    }catch(e:any){await db.exec('rollback');console.log('SQL ERROR',e.code,e.message);return Response.json({code:e.code,message:e.message},{status:e.code==='PT409'?409:400});}
@@ -178,5 +179,28 @@ describe('Transición relacional PostgreSQL 17',()=>{
   const event=(await call('/api/capture/management')).data.events[0];
   const linked=await call('/api/selection/link','POST',{eventId:event.id,campaignId,templateId:template.data.id});expect(linked.status).toBe(201);
   const history=await call('/api/selection/candidates/'+event.candidateId);expect(history.data.applications).toHaveLength(1);
+ });
+ it('runtime multiempresa: cambio de contexto, creación, aislamiento y revocación',async()=>{
+  await db.exec(`insert into talent_org.global_admins(id,auth_user_id) values('ci-global','${admin}')`);
+  for(const c of ['talent-up','techcenter'])await db.query('select public.talent_org_member_save($1,$1,$2,$3,true,true,$4,null)',[admin,c,'ADMIN','{}']);
+  env.ORG_ENABLED='true';
+  env.IDENTITY_HASH_SECRET='CI-isolated-only-identity-secret';
+  try{
+   const session=await call('/api/session','GET',undefined,admin,'talent-up');expect(session.status).toBe(200);expect(session.data.companyId).toBe('talent-up');
+   const created=await call('/api/campaigns','POST',{code:'ORG-CALL',title:'CI multiempresa',vacancies:2,status:'EN_PROCESO',assignedAnalystId:admin,responsibles:[{userId:admin,target:2}],companyCampaignId:'talent-up:bitel-portabilidad'},admin,'talent-up');expect(created.status).toBe(201);
+   expect((await call('/api/bootstrap','GET',undefined,admin,'talent-up')).data.campaigns).toHaveLength(1);
+   expect((await call('/api/bootstrap','GET',undefined,admin,'techcenter')).data.campaigns).toHaveLength(0);
+   expect((await call('/api/campaigns/'+created.data.id,'PATCH',{title:'Intrusión'},admin,'techcenter')).status).not.toBe(200);
+   expect((await call('/api/bootstrap','GET',undefined,trainer,'talent-up')).status).toBe(403);
+   const membership=await call('/api/org/memberships','POST',{companyId:'talent-up',userId:trainer,role:'FORMADOR',enabled:true,allCampaigns:false,scopes:['talent-up:bitel-portabilidad']},admin);expect(membership.status).toBe(200);
+   expect((await call('/api/bootstrap','GET',undefined,trainer,'talent-up')).data.cohorts).toHaveLength(0);
+   const edit=await call('/api/campaigns/'+created.data.id,'PATCH',{observations:'CI edición por empresa'},admin,'talent-up');expect(edit.status).toBe(200);
+   const second=await call('/api/campaigns','POST',{code:'ORG-SECOND',title:'CI segunda empresa',vacancies:2,status:'EN_PROCESO',assignedAnalystId:admin,responsibles:[{userId:admin,target:2}],companyCampaignId:'techcenter:bitel-portabilidad'},admin,'techcenter');expect(second.status).toBe(201);
+   for(const [company,campaignId]of [['talent-up',created.data.id],['techcenter',second.data.id]]){const candidate=await call('/api/candidates','POST',{dni:'98887776',fullName:'CI persona multiempresa',phone:'999000009',campaignId,recruiterId:admin,source:'Otro',applicationDate:'2026-10-12'},admin,company);expect(candidate.status).toBe(201);}
+   const summary=await call('/api/org/summary','POST',{},admin);expect(summary.status).toBe(200);expect(summary.data.persons).toBe(1);expect(summary.data.applications).toBe(2);
+   const rejected=await call('/api/org/memberships','POST',{companyId:'talent-up',userId:trainer,role:'ADMIN',enabled:true,allCampaigns:true,scopes:[]},trainer,'talent-up');expect(rejected.status).toBe(403);
+   expect((await call('/api/org/memberships','POST',{companyId:'talent-up',userId:trainer,role:'FORMADOR',enabled:false,allCampaigns:false,scopes:[],version:membership.data.version},admin)).status).toBe(200);
+   expect((await call('/api/bootstrap','GET',undefined,trainer,'talent-up')).status).toBe(403);
+  }finally{env.ORG_ENABLED=undefined;}
  });
 });

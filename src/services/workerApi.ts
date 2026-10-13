@@ -18,6 +18,10 @@ const WORKER_ERROR_MESSAGES: Record<string, string> = {
   UNAUTHENTICATED: 'Tu sesión venció. Vuelve a iniciar sesión.',
   INVALID_TOKEN: 'Tu sesión ya no es válida. Vuelve a iniciar sesión.',
   FORBIDDEN: 'No tienes permisos para realizar esta acción.',
+  ORG_VALIDATION_FAILED: 'Revisa la empresa, campaña, rol y versión de la asignación.',
+  COMPANY_CAMPAIGN_REQUIRED: 'Selecciona una campaña autorizada para esta empresa.',
+  COMPANY_LEGAL_REQUIRED: 'Configura la razón social legal y el RUC de la empresa en Administración antes de preparar datos laborales o contratos.',
+  USER_HOME_COMPANY_REQUIRED: 'Edita el perfil o restablece la contraseña desde la empresa de origen del usuario. Para modificar acceso a esta empresa usa Asignaciones multiempresa.',
   INVALID_CAMPAIGN: 'Completa el nombre y una cantidad válida de vacantes.',
   TARGET_EXCEEDS_VACANCIES: 'Las vacantes no pueden ser menores que las cuotas asignadas. Ajusta primero las cuotas de los responsables.',
   INVALID_CAMPAIGN_DATES: 'Revisa las fechas: deben ser válidas y el fin no puede ser anterior al inicio.',
@@ -57,6 +61,9 @@ const WORKER_ERROR_MESSAGES: Record<string, string> = {
   PASSWORD_CHANGE_REQUIRED: 'Debes cambiar la contraseña temporal antes de continuar.',
   PASSWORD_MIN_12: 'La nueva contraseña debe tener al menos 12 caracteres.',
   LAST_ADMIN_REQUIRED: 'Debes conservar al menos un administrador activo.',
+  LAST_GLOBAL_ADMIN_REQUIRED: 'Debes conservar al menos un administrador global activo.',
+  GLOBAL_ADMIN_ROLE_REQUIRED: 'Un administrador global debe conservar el rol ADMIN; no se permite degradarlo desde esta pantalla.',
+  IDENTITY_SERVICE_NOT_CONFIGURED: 'El servicio privado de identidad está pendiente de configuración. Contacta al administrador.',
   DUPLICATE_RECORD: 'Ya existe un registro con esos datos.',
   CAPTURE_RETRY: 'Los datos cambiaron mientras guardabas. Actualiza e inténtalo nuevamente.',
   CV_NOT_FOUND: 'El candidato no tiene un CV disponible.',
@@ -76,7 +83,7 @@ export async function workerApi<T>(path: string, init: RequestInit = {}): Promis
   try {
     response = await fetch(`${baseUrl}${path}`, {
       ...init,
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...init.headers },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(localStorage.getItem('talent:company')?{'X-Talent-Company':localStorage.getItem('talent:company')!}:{}), ...init.headers },
     });
   } catch {
     console.error(`[Worker API] ${init.method ?? 'GET'} ${path} network failure from ${window.location.origin}`);
@@ -102,7 +109,7 @@ async function authenticatedToken(): Promise<string> {
 export async function workerUpload<T>(path: string, formData: FormData): Promise<T> {
   const token = await authenticatedToken();
   let result: Response;
-  try { result = await fetch(`${baseUrl}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: formData }); }
+  try { result = await fetch(`${baseUrl}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, ...(localStorage.getItem('talent:company')?{'X-Talent-Company':localStorage.getItem('talent:company')!}:{}) }, body: formData }); }
   catch { throw new WorkerApiError(0, 'WORKER_NETWORK_UNREACHABLE'); }
   if (!result.ok) {
     const payload = await result.json().catch((): WorkerErrorPayload => ({}));
@@ -116,7 +123,7 @@ export async function workerUpload<T>(path: string, formData: FormData): Promise
 export async function workerDownload(path: string): Promise<Blob> {
   const token = await authenticatedToken();
   let result: Response;
-  try { result = await fetch(`${baseUrl}${path}`, { headers: { Authorization: `Bearer ${token}` } }); }
+  try { result = await fetch(`${baseUrl}${path}`, { headers: { Authorization: `Bearer ${token}`, ...(localStorage.getItem('talent:company')?{'X-Talent-Company':localStorage.getItem('talent:company')!}:{}) } }); }
   catch { throw new WorkerApiError(0, 'WORKER_NETWORK_UNREACHABLE'); }
   if (!result.ok) {
     const payload = await result.json().catch((): WorkerErrorPayload => ({}));

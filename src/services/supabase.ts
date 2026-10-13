@@ -14,6 +14,7 @@ export const supabase = isSupabaseConfigured ? createClient(url, publicKey(key),
 export async function signInSupabase(username: string, password: string, remember = true) {
   if (!supabase) throw new Error('Supabase todavía no está configurado.');
   localStorage.setItem('talent-on:remember-supabase', String(remember));
+  localStorage.removeItem('talent:company');
   return supabase.auth.signInWithPassword({ email: `${username.trim().toLowerCase()}@auth.talentcc.invalid`, password });
 }
 export async function signOutSupabase() { if (supabase) { const { error } = await supabase.auth.signOut(); if (error) throw error; } }

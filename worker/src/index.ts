@@ -2,6 +2,7 @@ import { handleCapture, CaptureError } from './capture';
 import { relationalSession, changeFirstPassword, type SessionProfile } from './supabaseSession';
 import { RelationalRuntime, type RuntimeEnv } from './relationalRuntime';
 import { relationalIdentity } from './supabaseIdentity';
+import { organizationRequest,organizationUserGuard } from './organization';
 import { SupabaseError, type SupabaseEnv } from './supabase';
 import { handleSelectionAdvanced, checkProcessApproval, checkProcessStage } from './selectionAdvanced';
 export interface Env extends SupabaseEnv, RuntimeEnv {
@@ -58,7 +59,7 @@ function corsResponse(request: Request, env: Env) {
   const headers = cors(request, env);
   if (request.method !== 'OPTIONS') return undefined;
   if (!originAllowed(request, env)) return response({ message: 'ORIGIN_NOT_ALLOWED' }, 403);
-  return new Response(null, { status: 204, headers: { ...headers, 'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS', 'access-control-allow-headers': 'Authorization,Content-Type', 'access-control-max-age': '600' } });
+  return new Response(null, { status: 204, headers: { ...headers, 'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS', 'access-control-allow-headers': 'Authorization,Content-Type,X-Talent-Company', 'access-control-max-age': '600' } });
 }
 function pemToDer(pem: string) { return b64(pem.replace(/-----(BEGIN|END) (PUBLIC|PRIVATE) KEY-----/g, '').replace(/\s/g, '')); }
 async function getFirebaseKeys(forceRefresh = false): Promise<Record<string, JsonWebKey>> {
@@ -208,6 +209,7 @@ function validateCampaignEdit(data:Record<string,unknown>) {
 async function createCampaign(request: Request, env: Env, actor: Profile) {
   requireSelectionManager(actor); const input = await request.json<Record<string, unknown>>();
   const id = campaignId(); const vacancies = numberValue(input.vacancies, 0); const responsibles = input.responsibles;
+  if(env.RELATIONAL_ACTOR?.managedCompany&&!env.RELATIONAL_ACTOR.companyCampaigns?.includes(String(input.companyCampaignId)))throw new Error('COMPANY_CAMPAIGN_REQUIRED');
   validateCampaignEdit(input);
   if (!String(input.title ?? '').trim() || vacancies <= 0) throw new Error('INVALID_CAMPAIGN');
   if (responsibleTargets(responsibles) > vacancies && input.allowOverTargetQuota !== true) throw new Error('TARGET_EXCEEDS_VACANCIES');
@@ -726,6 +728,7 @@ function hiringTrace(candidateData: Record<string, unknown>, actor: Profile, pre
 }
 async function saveHiringLaborData(request: Request, env: Env, actor: Profile, candidateId: string) {
   const candidateData = await requireTalentCandidate(env, actor, candidateId); const input = await request.json<Record<string, unknown>>();
+  if(env.RELATIONAL_ACTOR?.managedCompany){const employer=await env.RELATIONAL_RUNTIME!.get('companies/'+actor.companyId);if(!employer?.legalName||!employer.taxId)throw new Error('COMPANY_LEGAL_REQUIRED');input.company=employer.legalName;input.companyId=actor.companyId;input.companyTaxId=employer.taxId;}
   const required = ['company', 'position', 'campaignOrArea', 'plannedStartDate', 'modality', 'site']; if (required.some(field => !String(input[field] ?? '').trim()) || numberValue(input.remuneration) <= 0 || !['PRESENCIAL', 'REMOTO', 'HIBRIDO'].includes(String(input.modality))) throw new Error('INVALID_LABOR_DATA');
   const hiring = isRecord(candidateData.hiring) ? candidateData.hiring : {}; const previousStatus = String(hiring.status ?? 'PENDIENTE_CONTRATACION'); if (!['PENDIENTE_CONTRATACION', 'REPROGRAMADO', 'EN_REVISION'].includes(previousStatus)) throw new Error('LABOR_DATA_LOCKED'); const status = ['PENDIENTE_CONTRATACION', 'REPROGRAMADO'].includes(previousStatus) ? 'EN_REVISION' : previousStatus; const trace = hiringTrace(candidateData, actor, previousStatus, status, 'Datos laborales revisados y guardados.');
   await firestore(env, `candidates/${candidateId}`, 'PATCH', { fields: fields({ hiring: { ...hiring, status, laborData: { ...input, baseSalary: numberValue(input.remuneration), officialStartDate: input.plannedStartDate, workLocation: input.site }, updatedAt: trace.now, updatedBy: actor.uid }, selection: trace.selection, updatedAt: trace.now, updatedBy: actor.uid }) });
@@ -738,9 +741,11 @@ async function changeHiringStatus(request: Request, env: Env, actor: Profile, ca
   await firestore(env, `candidates/${candidateId}`, 'PATCH', { fields: fields({ hiring: { ...hiring, status, updatedAt: trace.now, updatedBy: actor.uid }, selection: trace.selection, updatedAt: trace.now, updatedBy: actor.uid }) }); return response({ ok: true, status }, 200, cors(request, env));
 }
 async function generateHiringContract(request: Request, env: Env, actor: Profile, candidateId: string) {
+  let employer:Record<string,unknown>|undefined;
+  if(env.RELATIONAL_ACTOR?.managedCompany){const company=await env.RELATIONAL_RUNTIME!.get('companies/'+actor.companyId);if(!company?.legalName||!company.taxId)throw new Error('COMPANY_LEGAL_REQUIRED');employer={companyId:actor.companyId,legalName:company.legalName,taxId:company.taxId};}
   const candidateData = await requireTalentCandidate(env, actor, candidateId); const hiring = isRecord(candidateData.hiring) ? candidateData.hiring : {}; if (hiring.status !== 'EN_REVISION' || !isRecord(hiring.laborData)) throw new Error('HIRING_NOT_READY_FOR_CONTRACT');
   const documents = await candidateDocuments(env, candidateId); const requiredTypes = ['DNI', 'CV', 'CUL_ANTECEDENTES', 'RECIBO_SERVICIOS']; const validated = new Set(documents.filter(document => document.status === 'VALIDATED').map(document => String(document.type))); if (!requiredTypes.every(type => validated.has(type))) throw new Error('DOCUMENTS_NOT_VALIDATED');
-  const now = new Date().toISOString(); const contract = { contractNumber: `CTR-${now.slice(0, 4)}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, generatedDate: now.slice(0, 10), signatureStatus: 'PENDIENTE', contractVersion: '1.0', generatedBy: actor.uid, fileGenerated: false }; const trace = hiringTrace(candidateData, actor, 'EN_REVISION', 'CONTRATO_GENERADO', 'Datos contractuales registrados. No se generó un archivo contractual.');
+  const now = new Date().toISOString(); const contract = { contractNumber: `CTR-${now.slice(0, 4)}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, generatedDate: now.slice(0, 10), signatureStatus: 'PENDIENTE', contractVersion: '1.0', generatedBy: actor.uid, fileGenerated: false, ...(employer?{employer}:{}) }; const trace = hiringTrace(candidateData, actor, 'EN_REVISION', 'CONTRATO_GENERADO', 'Datos contractuales registrados. No se generó un archivo contractual.');
   await firestore(env, `candidates/${candidateId}`, 'PATCH', { fields: fields({ hiring: { ...hiring, status: 'CONTRATO_GENERADO', contract, documentsValidated: true, updatedAt: now, updatedBy: actor.uid }, selection: trace.selection, updatedAt: now, updatedBy: actor.uid }) }); return response({ ok: true, status: 'CONTRATO_GENERADO', contractNumber: contract.contractNumber }, 201, cors(request, env));
 }
 async function signHiringContract(request: Request, env: Env, actor: Profile, candidateId: string) {
@@ -766,7 +771,7 @@ async function profileFor(request: Request, env: Env) {
     if(!data||data.uid!==verified.authUserId)throw new Error('PROFILE_NOT_FOUND');
     if(data.enabled===false||data.status!=='ACTIVO')throw new Error('ACCOUNT_DISABLED');
     if(data.mustChangePassword===true)throw new Error('PASSWORD_CHANGE_REQUIRED');
-    return {uid:verified.id,username:data.username,displayName:data.displayName,role:data.role,companyId:verified.companyId,module:data.module||[],allowedModules:data.allowedModules||[],scope:data.scope||[],subordinateUserIds:data.subordinateUserIds||[],enabled:true,status:'ACTIVO'} as Profile;
+    return {uid:verified.id,username:data.username,displayName:data.displayName,role:verified.role,companyId:verified.companyId,module:verified.allowedModules||data.module||[],allowedModules:verified.allowedModules||data.allowedModules||[],scope:verified.managedCompany?verified.scope||[]:data.scope||[],subordinateUserIds:data.subordinateUserIds||[],enabled:true,status:'ACTIVO'} as Profile;
   }
   const uid = await verifyToken(request, env);
   let doc: FirestoreDocument;
@@ -949,6 +954,8 @@ async function updateUser(request: Request, env: Env, actor: Profile, uid: strin
   try { existingDocument = await firestore(env, `users/${uid}`); }
   catch (error) { if (error instanceof Error && error.message === 'FIRESTORE_404') throw new Error('Usuario no encontrado.'); throw error; }
   const existing = unpack(existingDocument.fields ?? {});
+  if(env.ORG_ENABLED==='true')await organizationUserGuard(env,env.RELATIONAL_ACTOR!,uid);
+  if(env.ORG_ENABLED==='true'&&existing.homeCompanyId&&existing.homeCompanyId!==actor.companyId)throw new Error('USER_HOME_COMPANY_REQUIRED');
   const role = typeof input.role === 'string' ? input.role as Role : undefined;
   const status = input.status === undefined ? 'ACTIVO' : input.status;
   if (!uid || !role || !modulesByRole[role] || !['ACTIVO', 'INACTIVO'].includes(String(status))) throw new Error('Actualización de usuario inválida.');
@@ -999,6 +1006,8 @@ async function updateUser(request: Request, env: Env, actor: Profile, uid: strin
   return response({ ok: true }, 200, cors(request, env));
 }
 async function resetPassword(request: Request, env: Env, actor: Profile, uid: string) {
+  if(env.ORG_ENABLED==='true')await organizationUserGuard(env,env.RELATIONAL_ACTOR!,uid);
+  if(env.ORG_ENABLED==='true'){const user=await env.RELATIONAL_RUNTIME!.get('users/'+uid);if(user?.homeCompanyId&&user.homeCompanyId!==actor.companyId)throw new Error('USER_HOME_COMPANY_REQUIRED');}
   requireAdmin(actor); const { newPassword } = await request.json<{ newPassword?: string }>();
   if (!uid || !newPassword || newPassword.length < 8) throw new Error('La contraseña debe tener al menos 8 caracteres.');
   await identityAdmin(env, 'update', { localId: uid, password: newPassword });
@@ -1168,8 +1177,11 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
     if(!originAllowed(request,env))throw new Error('ORIGIN_NOT_ALLOWED');
     const token=path.match(/^\/api\/public\/capture\/([a-f0-9]{48})$/)?.[1];
     const actor=token?undefined:await relationalSession(request,env);
-    store=await new RelationalRuntime(env,actor?.authUserId||null,token).load();
-    scoped={...env,DOCUMENTS:objectStore,RELATIONAL_ACTOR:actor,RELATIONAL_RUNTIME:store};
+    if(actor?.managedCompany&&path==='/api/capture/links'&&request.method==='POST'){const input=await request.clone().json<{companyCampaignId?:string}>();if(!actor.companyCampaigns?.includes(input.companyCampaignId||''))throw new SupabaseError(403,'COMPANY_CAMPAIGN_REQUIRED');}
+    if(path.startsWith('/api/org')&&env.ORG_ENABLED==='true'&&actor)return response(await organizationRequest(request,env,actor),200,cors(request,env));
+    const runtimeEnv={...env,ORG_COMPANY:actor?.companyId};
+    store=await new RelationalRuntime(runtimeEnv,actor?.authUserId||null,token).load();
+    scoped={...runtimeEnv,DOCUMENTS:objectStore,RELATIONAL_ACTOR:actor,RELATIONAL_RUNTIME:store};
     const result=await handleRequest(request,scoped);
     if(result.ok)await store.commit();
     else {await cleanup();for(const uid of store.newAuthIds)await relationalIdentity(scoped,'delete',{localId:uid}).catch(()=>{});}

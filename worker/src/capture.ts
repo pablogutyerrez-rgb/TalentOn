@@ -169,7 +169,7 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
   if (path === '/api/capture/links' && request.method === 'POST') {
     if (!['ADMIN', 'RECLUTADOR'].includes(actor.role)) throw new CaptureError('FORBIDDEN', 403);
     const input = await body(request); if (!captureSources.includes(input.source) || !actor.companyId) throw new CaptureError('INVALID_SOURCE_OR_COMPANY');
-    const id = randomToken(), link = { id, source: input.source, ownerUid: actor.uid, companyId: actor.companyId, active: true, createdAt: new Date().toISOString() };
+    const id = randomToken(), link = { id, source: input.source,companyCampaignId:input.companyCampaignId, ownerUid: actor.uid, companyId: actor.companyId, active: true, createdAt: new Date().toISOString() };
     await store.atomic(async () => ({ result: undefined, writes: [{ path: `captureLinks/${id}`, data: link, create: true }, { path: `captureAudit/${crypto.randomUUID()}`, data: { at: link.createdAt, actorUid: actor.uid, linkId: id, action: 'Creación enlace' }, create: true }] }));
     return reply(link, 201);
   }

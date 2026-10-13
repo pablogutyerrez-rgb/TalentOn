@@ -309,8 +309,8 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const loadSupabaseProfile = async (isCurrent = () => true) => {
-    const data = await workerApi<{id:string;companyId:string;username:string;name:string;role:UserProfile['role'];status:'ACTIVO';allowedModules:UserProfile['allowedModules'];mustChangePassword:boolean;avatarUrl?:string;nickname?:string;tagline?:string;phone?:string;jobTitle?:string;scope?:string[];subordinateUserIds?:string[]}>('/api/session');
-    const profile: UserProfile = normalizeUserIdentity({id:data.id,companyId:data.companyId,email:data.username,name:data.name,role:data.role,status:data.status,allowedModules:data.allowedModules,avatarUrl:data.avatarUrl||'',nickname:data.nickname,tagline:data.tagline,phone:data.phone,jobTitle:data.jobTitle,scopeCampaignIds:data.scope||[],subordinateUserIds:data.subordinateUserIds||[]});
+    const data = await workerApi<{id:string;companyId:string;username:string;name:string;role:UserProfile['role'];status:'ACTIVO';allowedModules:UserProfile['allowedModules'];mustChangePassword:boolean;avatarUrl?:string;nickname?:string;tagline?:string;phone?:string;jobTitle?:string;scope?:string[];subordinateUserIds?:string[];companies?:UserProfile['companies'];globalAdmin?:boolean;managedCompany?:boolean;companyCampaigns?:string[]}>('/api/session');
+    const profile: UserProfile = normalizeUserIdentity({id:data.id,companyId:data.companyId,email:data.username,name:data.name,role:data.role,status:data.status,allowedModules:data.allowedModules,avatarUrl:data.avatarUrl||'',nickname:data.nickname,tagline:data.tagline,phone:data.phone,jobTitle:data.jobTitle,scopeCampaignIds:data.scope||[],subordinateUserIds:data.subordinateUserIds||[],companies:data.companies,globalAdmin:data.globalAdmin,managedCompany:data.managedCompany,companyCampaigns:data.companyCampaigns});
     if (!isCurrent()) return profile;
     setCurrentUserState(profile);
     setMustChangePassword(data.mustChangePassword === true);
@@ -371,7 +371,7 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       running=true;
       try {
         const data=await workerApi<{users:UserProfile[];campaigns:CampaignCall[];cohorts:TrainingCohort[];candidates:CandidateRecord[]}>('/api/bootstrap');
-        if(active){const self=data.users.find(u=>u.id===currentUser.id);if(self)setCurrentUserState(normalizeUserIdentity(self));setUsers(data.users.map(normalizeUserIdentity));setCampaigns(data.campaigns.map(c=>campaignFromFirestore(c.id,c as unknown as Record<string,unknown>)));setCohorts(data.cohorts.map(c=>trainingFromFirestore(c.id,c as unknown as Record<string,unknown>)));setCandidates(data.candidates.map(c=>candidateFromFirestore(c.id,c as unknown as Record<string,unknown>)));setConnectionError('');}
+        if(active){const self=data.users.find(u=>u.id===currentUser.id);if(self)setCurrentUserState(prev=>normalizeUserIdentity({...prev,...self,...(prev.managedCompany?{scopeCampaignIds:prev.scopeCampaignIds,role:prev.role,allowedModules:prev.allowedModules}:{})}));setUsers(data.users.map(normalizeUserIdentity));setCampaigns(data.campaigns.map(c=>campaignFromFirestore(c.id,c as unknown as Record<string,unknown>)));setCohorts(data.cohorts.map(c=>trainingFromFirestore(c.id,c as unknown as Record<string,unknown>)));setCandidates(data.candidates.map(c=>candidateFromFirestore(c.id,c as unknown as Record<string,unknown>)));setConnectionError('');}
       } catch { if(active)setConnectionError('No se pudieron actualizar los datos de Supabase. Intenta nuevamente.'); }
       finally {running=false;if(active&&queued){queued=false;void refresh();}}
     };
@@ -731,6 +731,7 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }));
 
     const newCamp: CampaignCall = {
+      companyCampaignId:campData.companyCampaignId,
       id: newId,
       code,
       company: campData.company || 'Empresa Cliente',

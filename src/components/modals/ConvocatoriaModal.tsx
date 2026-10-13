@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { useTalent } from '../../context/TalentContext';
 import { CampaignCall, ProcessType, ManagementType, ConvocatoriaStatus } from '../../types';
-import { getWorkerErrorMessage } from '../../services/workerApi';
+import { getWorkerErrorMessage,workerApi } from '../../services/workerApi';
 
 interface ConvocatoriaModalProps {
   isOpen: boolean;
@@ -31,6 +31,9 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
   const { createConvocatoria, updateConvocatoria, currentUser, availableUsers } = useTalent();
 
   const [company, setCompany] = useState('');
+  const [catalog,setCatalog]=useState<{id:string;name:string;company_id:string}[]>([]);
+  const [companyCampaignId,setCompanyCampaignId]=useState('');
+  useEffect(()=>{if(isOpen&&currentUser.managedCompany){let active=true;void workerApi<{campaigns:typeof catalog}>('/api/org').then(d=>{if(active)setCatalog(d.campaigns.filter(c=>c.company_id===currentUser.companyId));}).catch(e=>{if(active)setSubmitError(getWorkerErrorMessage(e));});setCompanyCampaignId((convocatoriaToEdit as CampaignCall & {companyCampaignId?:string})?.companyCampaignId||'');return()=>{active=false;};}},[isOpen,currentUser.companyId,currentUser.managedCompany,convocatoriaToEdit]);
   const [title, setTitle] = useState('');
   const [code, setCode] = useState('');
   const [area, setArea] = useState('Operaciones Contact Center');
@@ -128,6 +131,7 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
     const assignedAnalyst = availableUsers.find(u => u.id === assignedAnalystId);
 
     const payload: Partial<CampaignCall> = {
+      ...(currentUser.managedCompany?{companyCampaignId}:{}),
       code,
       company: company.trim(),
       title: title.trim(),
@@ -205,6 +209,7 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
               1. Identificación del Requerimiento
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {currentUser.managedCompany&&<label className="text-xs font-semibold">Campaña autorizada<select required disabled={!!convocatoriaToEdit} className="mt-1 w-full rounded-lg border p-3" value={companyCampaignId} onChange={e=>setCompanyCampaignId(e.target.value)}><option value="">Seleccionar campaña</option>{catalog.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Código Convocatoria
