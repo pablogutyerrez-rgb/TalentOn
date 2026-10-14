@@ -18,6 +18,23 @@ const captureFormOnly=process.argv.includes('--capture-form');
 const captureSettingsOnly=process.argv.includes('--capture-settings');
 const captureBuilderOnly=process.argv.includes('--capture-builder');
 const captureRolesOnly=process.argv.includes('--capture-roles');
+const grantIndex=process.argv.indexOf('--grant-global-admin');
+const grantUsername=grantIndex<0?null:process.argv[grantIndex+1];
+if(grantIndex>=0&&(!grantUsername||! /^[a-z0-9._-]{3,32}$/.test(grantUsername)))throw Error('EXACT_ADMIN_USERNAME_REQUIRED');
+if(grantUsername&&process.argv.slice(2).some(arg=>arg.startsWith('--')&&!['--execute','--grant-global-admin'].includes(arg)))throw Error('GRANT_MUST_RUN_SEPARATELY');
+const grantSql=grantUsername?readFileSync('scripts/sql/grant-global-admin.sql','utf8'):null;
+async function grantGlobal(db,actor){
+ await db.query("select set_config('talent.org_actor',$1,true)",[actor]);
+ await db.query(grantSql,[actor,grantUsername]);
+ const targets=(await db.query("select auth_user_id,company_id from talent.profiles where username=$1 and not is_context and role='ADMIN' and enabled and status='ACTIVO' and not must_change_password and archived_at is null",[grantUsername])).rows;
+ if(targets.length!==1)throw Error('EXACT_ADMIN_NOT_AVAILABLE');
+ const target=targets[0];
+ const context=(await db.query('select public.talent_org_context($1,$2) as data',[target.auth_user_id,target.company_id])).rows[0].data;
+ if(!context.globalAdmin||context.role!=='ADMIN'||!context.allowedModules.includes('ADMINISTRACION')||!context.companies.some(c=>c.id===target.company_id)||context.companies.length<4)throw Error('GLOBAL_GRANT_VERIFICATION_FAILED');
+ await db.query('select public.talent_org_users($1)',[target.auth_user_id]);
+ await db.query('select public.talent_org_directory($1)',[target.auth_user_id]);
+ return context;
+}
 const guardOnly=process.argv.includes('--guard');const contextOnly=process.argv.includes('--context');const extensionOnly=identityOnly||guardOnly||contextOnly||profileOnly||globalOnly||userOrderOnly||captureFormOnly||captureSettingsOnly||captureBuilderOnly||captureRolesOnly;
 const names=captureRolesOnly?['202610130018_capture_form_roles.sql']:captureBuilderOnly?['202610130017_capture_form_builder.sql']:captureSettingsOnly?['202610130016_capture_campaign_settings.sql']:captureFormOnly?['202610130015_public_capture_catalog.sql']:userOrderOnly?['202610130014_user_create_membership_order.sql']:globalOnly?['202610130013_global_dashboard_user_access.sql']:profileOnly?['202610120012_multiempresa_profile_identity.sql']:contextOnly?['202610120011_multiempresa_context_list.sql']:guardOnly?['202610120010_multiempresa_global_guard.sql']:identityOnly?['202610120009_multiempresa_identity.sql']:['202610120007_multiempresa_prepared.sql','202610120008_multiempresa_runtime.sql'];
 const hash=v=>createHash('sha256').update(v).digest('hex');const quote=v=>'"'+v.replaceAll('"','""')+'"';
@@ -26,14 +43,14 @@ try{
  await c.connect();if(!c.connection.stream.authorized)throw Error('TLS_NOT_VERIFIED');
  const applied=(await c.query('select name,sha256 from talent_private.applied_migrations')).rows;
  for(const m of applied){if(readFileSync('supabase/migrations/'+m.name,'utf8')&&hash(readFileSync('supabase/migrations/'+m.name,'utf8'))!==m.sha256)throw Error('APPLIED_HASH_MISMATCH');}
- const pending=names.filter(n=>!applied.some(a=>a.name===n));
- if(!pending.length){console.log('Migraciones solicitadas ya aplicadas; hashes correctos.');process.exitCode=0;}
+ const pending=grantUsername?[]:names.filter(n=>!applied.some(a=>a.name===n));
+ if(!pending.length&&!grantUsername){console.log('Migraciones solicitadas ya aplicadas; hashes correctos.');process.exitCode=0;}
  else{
-  if(pending.length!==names.length)throw Error('PARTIAL_ORG_MIGRATION_REQUIRES_REVIEW');
+  if(!grantUsername&&pending.length!==names.length)throw Error('PARTIAL_ORG_MIGRATION_REQUIRES_REVIEW');
   const admin=(await c.query("select id,auth_user_id,company_id from talent.profiles where username='admin' and auth_user_id is not null and role='ADMIN' and enabled and status='ACTIVO' and not must_change_password and archived_at is null")).rows;
   if(admin.length!==1)throw Error('EXPLICIT_ADMIN_NOT_AVAILABLE');
   // No reubicar empresas que ya tengan registros bajo IDs reservados.
-  if(!extensionOnly&&(await c.query("select count(*)::int as n from talent.companies where id in ('talent-up','techcenter','konectados')")).rows[0].n)throw Error('CATALOG_ID_CONFLICT_REQUIRES_REVIEW');
+  if(!extensionOnly&&!grantUsername&&(await c.query("select count(*)::int as n from talent.companies where id in ('talent-up','techcenter','konectados')")).rows[0].n)throw Error('CATALOG_ID_CONFLICT_REQUIRES_REVIEW');
   await c.query('begin isolation level repeatable read read only');
   const tables=(await c.query("select schemaname,tablename from pg_tables where schemaname in ('talent','talent_private','talent_org') or (schemaname='public' and tablename='talent_documents') order by schemaname,tablename")).rows;
   const backup={project,createdAt:new Date().toISOString(),tables:{},functions:(await c.query("select pg_get_functiondef(p.oid) as definition from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='talent_private' or (n.nspname='public' and p.proname like 'talent_%')")).rows.map(r=>r.definition),migrations:readdirSync('supabase/migrations').filter(n=>applied.some(a=>a.name===n)).sort().map(name=>({name,sql:readFileSync('supabase/migrations/'+name,'utf8')}))};
@@ -55,7 +72,14 @@ try{
    for(const row of rows){const cols=Object.keys(row).map(quote).join(',');await isolated.query('insert into '+key+' ('+cols+') overriding system value select '+Object.keys(row).map(k=>'r.'+quote(k)).join(',')+' from jsonb_populate_record(null::'+key+',$1::jsonb) r on conflict do nothing',[JSON.stringify(row)]);}
    const n=(await isolated.query('select count(*)::int as n from '+key)).rows[0].n;if(n!==rows.length)throw Error('RESTORE_COUNT_FAILED:'+key);
   }
-  await isolated.exec('commit');await isolated.close();isolated=undefined;
+  await isolated.exec('commit');
+  if(grantUsername){
+   // Explicit restored identity IDs do not advance the isolated sequence.
+   await isolated.exec("select setval(pg_get_serial_sequence('talent_org.audit_events','id'),coalesce((select max(id) from talent_org.audit_events),0)+1,false)");
+   for(const key of Object.keys(saved.tables))await isolated.exec('alter table '+key+' enable trigger user');
+   await isolated.exec('begin');await grantGlobal(isolated,admin[0].auth_user_id);await isolated.exec('rollback');
+  }
+  await isolated.close();isolated=undefined;
   console.log('Respaldo privado y restauración aislada verificados: '+file+'; '+tables.length+' tablas.');
   await c.query('begin');await c.query("select pg_advisory_xact_lock(hashtextextended('talent:migrations',0))");
   await c.query('set local lock_timeout=\'10s\'');
@@ -68,7 +92,8 @@ try{
   for(const name of pending){const sql=readFileSync('supabase/migrations/'+name,'utf8');await c.query(sql.replace(/^begin;\s*$/gmi,'').replace(/^commit;\s*$/gmi,''));await c.query('insert into talent_private.applied_migrations(name,sha256) values($1,$2)',[name,hash(sql)]);}
   // Única asignación inicial: cuenta admin existente, solicitada como administrador global.
   await c.query("select set_config('talent.org_actor',$1,true)",[admin[0].auth_user_id]);
-  if(!extensionOnly){await c.query('insert into talent_org.global_admins(id,auth_user_id) values($1,$2)',[admin[0].id,admin[0].auth_user_id]);
+  if(grantUsername)await grantGlobal(c,admin[0].auth_user_id);
+  if(!extensionOnly&&!grantUsername){await c.query('insert into talent_org.global_admins(id,auth_user_id) values($1,$2)',[admin[0].id,admin[0].auth_user_id]);
    for(const company of ['talent-up','techcenter','konectados'])await c.query("select public.talent_org_member_save($1,$1,$2,'ADMIN',true,true,'{}',null)",[admin[0].auth_user_id,company]);}
   const companies=(await c.query('select public.talent_org_context($1,null) as data',[admin[0].auth_user_id])).rows[0].data.companies;
   if(companies.length<4)throw Error('ADMIN_CONTEXT_VERIFICATION_FAILED');
@@ -76,7 +101,7 @@ try{
   const legacy=(await c.query('select public.talent_org_snapshot($1,$2) as data',[admin[0].auth_user_id,admin[0].company_id])).rows[0].data;
   if(legacy.tables.campaigns.length!==saved.tables['talent.campaigns'].filter(c=>c.company_id===admin[0].company_id).length)throw Error('HISTORICAL_CAMPAIGNS_CHANGED');
   await c.query('commit');await c.query("notify pgrst,'reload schema'");
-  console.log(pending.join(', ')+' aplicadas atómicamente. Registros históricos conservados; Auth/R2 sin modificaciones.');
+  console.log(grantUsername?'Autorización global aplicada y verificada para '+grantUsername+'. Contraseña, Auth, membresías e históricos conservados.':pending.join(', ')+' aplicadas atómicamente. Registros históricos conservados; Auth/R2 sin modificaciones.');
  }
-}catch(e){await c.query('rollback').catch(()=>{});console.error('ORG_SETUP_FAILED:',e.code||e.message);process.exitCode=1;}
+}catch(e){await c.query('rollback').catch(()=>{});console.error('ORG_SETUP_FAILED:',e.code||e.message,e.constraint||'');process.exitCode=1;}
 finally{await isolated?.close();await c.end();}

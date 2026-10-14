@@ -368,6 +368,37 @@ describe('Transición relacional PostgreSQL 17',()=>{
    }
   }finally{env.ORG_ENABLED=undefined;}
  });
+ it('repara administrador multiempresa: Talent-On, creación, edición y permisos sin elevar otros roles',async()=>{
+  env.ORG_ENABLED='true';
+  try{
+   const uid=crypto.randomUUID(),username='ci.admin.repair';
+   await db.query('insert into auth.users(id) values ($1)',[uid]);
+   await db.query("insert into talent.profiles(company_id,id,auth_user_id,username,display_name,role,status,annotations) values ('tenant',$1::text,$1::uuid,$2,'CI Admin repair','ADMIN','ACTIVO','{\"companyAccessManaged\":true}')",[uid,username]);
+   authUsers.set(uid,{id:uid});
+   for(const company of ['talent-up','techcenter','konectados'])await db.query("select public.talent_org_member_save($1,$2,$3,'ADMIN',true,true,'{}',null)",[admin,uid,company]);
+   await db.query("insert into talent.user_modules(company_id,id,user_id,module) select 'tenant',$1||':'||code,$1,code from talent.modules",[uid]);
+   const before=await call('/api/session','GET',undefined,uid);expect(before.status).toBe(200);expect(before.data.globalAdmin).toBe(false);expect(before.data.companies).toHaveLength(3);
+   expect((await call('/api/session','GET',undefined,uid,'tenant')).status).toBe(403);
+   const grants=['talent-up','techcenter'].map(companyId=>({companyId,role:'RECLUTADOR',enabled:true,allCampaigns:false,scopes:[companyId+':bitel-portabilidad'],version:null}));
+   const payload={username:'ci.repair.created',password:'CI-password-2026',displayName:'CI created by repaired admin',role:'RECLUTADOR',module:['SELECCION'],companyAccess:grants};
+   expect((await call('/api/users','POST',payload,uid,'techcenter')).status).toBe(403);
+   const grantSql=readFileSync(resolve('../scripts/sql/grant-global-admin.sql'),'utf8');
+   await db.query(grantSql,[trainer,username]);expect((await call('/api/session','GET',undefined,uid)).data.globalAdmin).toBe(false);
+   await db.exec('begin');await db.query("select set_config('talent.org_actor',$1,true)",[admin]);await db.query(grantSql,[admin,username]);await db.exec('commit');
+   const after=await call('/api/session','GET',undefined,uid,'tenant');expect(after.status).toBe(200);expect(after.data.globalAdmin).toBe(true);expect(after.data.companies).toHaveLength(4);expect(after.data.allowedModules).toContain('ADMINISTRACION');
+   expect((await call('/api/org','GET',undefined,uid)).status).toBe(200);
+   expect((await call('/api/org/dashboard','POST',{},uid,'tenant')).status).toBe(200);
+   const created=await call('/api/users','POST',payload,uid,'tenant');expect(created.status).toBe(200);
+   const user=(await call('/api/bootstrap','GET',undefined,uid,'tenant')).data.users.find((u:any)=>u.email===payload.username);expect(user).toBeTruthy();
+   expect((await call('/api/users/'+user.id+'/access','PATCH',{displayName:'CI edited by repaired admin',role:'RECLUTADOR',status:'ACTIVO',module:['SELECCION']},uid,'techcenter')).status).toBe(200);
+   const memberships=(await call('/api/org','GET',undefined,uid)).data.memberships.filter((m:any)=>m.auth_user_id===user.id);
+   expect(memberships.filter((m:any)=>m.enabled).map((m:any)=>m.company_id).sort()).toEqual(['talent-up','techcenter']);
+   const audit=(await db.query("select count(*)::int as n from talent_org.audit_events where table_name='global_admins' and entity_id=$1 and actor_auth_id=$2",['global:'+uid,admin])).rows[0].n;expect(audit).toBe(1);
+   await db.query(grantSql,[admin,username]);
+   expect((await db.query("select count(*)::int as n from talent_org.audit_events where table_name='global_admins' and entity_id=$1",['global:'+uid])).rows[0].n).toBe(1);
+   expect((await call('/api/session','GET',undefined,trainer)).data.globalAdmin).toBe(false);
+  }finally{env.ORG_ENABLED=undefined;}
+ });
  it('creación y edición global guarda accesos de dos empresas con rollback y CAS',async()=>{
   env.ORG_ENABLED='true';
   try {

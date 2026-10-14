@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, UserRole, AppModuleName, CompanyAccess } from '../../types';
 import { UserCompanyAccess } from '../common/UserCompanyAccess';
+import { getWorkerErrorMessage } from '../../services/workerApi';
 import { useTalent } from '../../context/TalentContext';
 import { IdentityAvatar } from '../common/IdentityAvatar';
 import { sanitizeDisplayName } from '../../utils/identity';
@@ -333,7 +334,7 @@ export const UserModal: React.FC<UserModalProps> = ({
             ? 'No se pudo conectar con el backend administrativo.'
             : rawDetail.includes('internal') || rawDetail.includes('[0]')
               ? 'El backend administrativo devolvió un error interno. Actualiza o despliega el Cloudflare Worker y vuelve a intentar.'
-            : rawDetail;
+            : getWorkerErrorMessage(error);
       setErrorMsg(`No fue posible guardar el usuario: ${detail}`);
       return;
     } finally {
