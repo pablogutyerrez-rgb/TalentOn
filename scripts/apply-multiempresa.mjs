@@ -19,6 +19,7 @@ const captureSettingsOnly=process.argv.includes('--capture-settings');
 const captureBuilderOnly=process.argv.includes('--capture-builder');
 const captureRolesOnly=process.argv.includes('--capture-roles');
 const unifiedOnly=process.argv.includes('--unified');
+const funnelOnly=process.argv.includes('--funnel');
 const grantIndex=process.argv.indexOf('--grant-global-admin');
 const grantUsername=grantIndex<0?null:process.argv[grantIndex+1];
 if(grantIndex>=0&&(!grantUsername||! /^[a-z0-9._-]{3,32}$/.test(grantUsername)))throw Error('EXACT_ADMIN_USERNAME_REQUIRED');
@@ -36,8 +37,8 @@ async function grantGlobal(db,actor){
  await db.query('select public.talent_org_directory($1)',[target.auth_user_id]);
  return context;
 }
-const guardOnly=process.argv.includes('--guard');const contextOnly=process.argv.includes('--context');const extensionOnly=identityOnly||guardOnly||contextOnly||profileOnly||globalOnly||userOrderOnly||captureFormOnly||captureSettingsOnly||captureBuilderOnly||captureRolesOnly||unifiedOnly;
-const names=unifiedOnly?['202610160019_unified_record_context.sql']:captureRolesOnly?['202610130018_capture_form_roles.sql']:captureBuilderOnly?['202610130017_capture_form_builder.sql']:captureSettingsOnly?['202610130016_capture_campaign_settings.sql']:captureFormOnly?['202610130015_public_capture_catalog.sql']:userOrderOnly?['202610130014_user_create_membership_order.sql']:globalOnly?['202610130013_global_dashboard_user_access.sql']:profileOnly?['202610120012_multiempresa_profile_identity.sql']:contextOnly?['202610120011_multiempresa_context_list.sql']:guardOnly?['202610120010_multiempresa_global_guard.sql']:identityOnly?['202610120009_multiempresa_identity.sql']:['202610120007_multiempresa_prepared.sql','202610120008_multiempresa_runtime.sql'];
+const guardOnly=process.argv.includes('--guard');const contextOnly=process.argv.includes('--context');const extensionOnly=identityOnly||guardOnly||contextOnly||profileOnly||globalOnly||userOrderOnly||captureFormOnly||captureSettingsOnly||captureBuilderOnly||captureRolesOnly||unifiedOnly||funnelOnly;
+const names=funnelOnly?['202610160020_global_selection_funnel.sql']:unifiedOnly?['202610160019_unified_record_context.sql']:captureRolesOnly?['202610130018_capture_form_roles.sql']:captureBuilderOnly?['202610130017_capture_form_builder.sql']:captureSettingsOnly?['202610130016_capture_campaign_settings.sql']:captureFormOnly?['202610130015_public_capture_catalog.sql']:userOrderOnly?['202610130014_user_create_membership_order.sql']:globalOnly?['202610130013_global_dashboard_user_access.sql']:profileOnly?['202610120012_multiempresa_profile_identity.sql']:contextOnly?['202610120011_multiempresa_context_list.sql']:guardOnly?['202610120010_multiempresa_global_guard.sql']:identityOnly?['202610120009_multiempresa_identity.sql']:['202610120007_multiempresa_prepared.sql','202610120008_multiempresa_runtime.sql'];
 const hash=v=>createHash('sha256').update(v).digest('hex');const quote=v=>'"'+v.replaceAll('"','""')+'"';
 let isolated;
 try{

@@ -26,17 +26,28 @@ afterAll(async()=>{await db?.close()});
 it('global deserción usa 2/4=50%, no promedio 66.67% ni 4 eventos',async()=>{
  const {rows}=await db.query<{data:any}>('select public.talent_org_dashboard($1) data',[actor]);
  expect(rows[0].data.totals).toMatchObject({started:4,dropouts:2,dropout_rate:50,applications:4});
+ expect(rows[0].data.funnel).toEqual({postulantes:4,contactados:4,entrevistados:4,verificacion:4,evaluados:4,aptos:4});
  expect(rows[0].data.companies).toHaveLength(3);expect(JSON.stringify(rows)).not.toContain('Private name');
 });
 it('filtros empresa, campaña y período consultan datos originales',async()=>{
  const one=(await db.query<{data:any}>('select public.talent_org_dashboard($1,$2) data',[actor,'talent-up'])).rows[0].data;
  expect(one.totals).toMatchObject({started:1,dropouts:1,dropout_rate:100});
+ expect(one.funnel.postulantes).toBe(1);
  for(const args of [[null,'win-internet',null,null],[null,null,'2026-11-01','2026-11-30']]){
   const empty=(await db.query<{data:any}>('select public.talent_org_dashboard($1,$2,$3,$4,$5) data',[actor,...args])).rows[0].data;
   expect(empty.totals.started).toBe(0);expect(empty.totals.dropout_rate).toBeNull();
+  expect(empty.funnel.postulantes).toBe(0);
  }
 });
 it('ADMIN sin registro global no consulta consolidado ni directorio de personas',async()=>{
  await expect(db.query('select public.talent_org_dashboard($1)',[other])).rejects.toThrow();
  await expect(db.query('select public.talent_org_users($1)',[other])).rejects.toThrow();
+});
+it('embudo usa etapas alcanzadas, conserva historial y no revela nombres',async()=>{
+ await db.query("insert into talent.persons(company_id,id,full_name) values('talent-up','pending','Nombre reservado'),('talent-up','historical','Nombre reservado')");
+ await db.query("insert into talent.applications(company_id,id,person_id,campaign_id,recruiter_id,status,stage,application_date) values('talent-up','pending','pending','call','admin','ACTIVA','NUEVO','2026-10-01'),('talent-up','historical','historical','call','admin','CERRADA','NO_APTO','2026-10-01')");
+ await db.query("insert into talent.contract_events(company_id,id,application_id,stream,occurred_at,new_state) values('talent-up','history-test','historical','selection',now(),'ENTREVISTA')");
+ const result=(await db.query<{data:any}>('select public.talent_org_dashboard($1,$2) data',[actor,'talent-up'])).rows[0].data;
+ expect(result.funnel).toEqual({postulantes:3,contactados:2,entrevistados:2,verificacion:1,evaluados:1,aptos:1});
+ expect(JSON.stringify(result)).not.toContain('Nombre reservado');
 });
