@@ -1,5 +1,5 @@
 import { workerApi } from './workerApi';
-export const captureSources = ['Facebook', 'TikTok', 'LinkedIn', 'WhatsApp', 'Referidos', 'Otros'];
+export const captureSources = ['Facebook', 'TikTok', 'LinkedIn', 'WhatsApp', 'Pauta pagada', 'Referidos', 'Otros'];
 export const captureStates = ['Nuevo', 'Contactado', 'No responde', 'Interesado', 'No interesado'];
 export interface CaptureApplicant { fullName: string; phone: string; email: string; documentType: string; documentNumber: string; district: string; techCenterAnswers?: Record<string, string>; formSubmission?:{revision:number;title:string;questions:import('../../shared/captureFormSchema').FormQuestion[];answers:import('../../shared/captureFormSchema').FormAnswers;attachments:{id:string;name:string;size:number}[]} }
 export interface CaptureLink { id: string; source: string; ownerUid: string; companyId: string; active: boolean; createdAt: string }
@@ -12,6 +12,7 @@ export const captureApi = {
   inbox: () => workerApi<{ items: CaptureEvent[]; truncated: boolean }>('/api/capture/inbox'),
   create: (source: string,companyCampaignId?:string,companyId?:string) => workerApi('/api/capture/links', { method: 'POST', body: JSON.stringify({ source,companyCampaignId,companyId }) }),
   toggle: (id: string, active: boolean) => workerApi(`/api/capture/links/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) }),
+  remove: (id: string) => workerApi(`/api/capture/links/${id}`, { method: 'DELETE' }),
   manage: (id: string, status: string, note: string) => workerApi(`/api/capture/events/${id}`, { method: 'PATCH', body: JSON.stringify({ status, note }) }),
   dossier: (id: string) => workerApi<CaptureDossier>(`/api/capture/candidates/${encodeURIComponent(id)}`),
 };

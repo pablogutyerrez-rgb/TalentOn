@@ -14,7 +14,7 @@ const fields:Record<string,D>={
  applications:{candidateId:'person_id',campaignId:'campaign_id',recruiterId:'recruiter_id',status:'status',stage:'stage',applicationDate:'application_date',closedAt:'closed_at',closeReason:'closure_reason',processSnapshot:'process_snapshot',originEventId:'capture_id'},
  training_groups:{code:'code',name:'name',campaignId:'campaign_id',trainerId:'trainer_id',coordinatorId:'coordinator_id',startDate:'start_date',endDate:'theory_end_date',ojtStartDate:'ojt_start_date',ojtEndDate:'ojt_end_date',totalDays:'theory_days',ojtTotalDays:'ojt_days',ojtExtensionDays:'extension_days',schedule:'schedule',modality:'modality',maxCapacity:'capacity',passingMinGrade:'passing_grade',status:'status',roomOrLink:'room_or_link',observations:'observations',trainerAssignmentNotes:'trainer_assignment_notes',trainerAssignedAt:'trainer_assigned_at',trainerAssignedBy:'trainer_assigned_by'},
  participants:{status:'status',trainingApproved:'training_approved'},
- capture_links:{companyCampaignId:'company_campaign_id',ownerUid:'owner_id',active:'active'},
+ capture_links:{companyCampaignId:'company_campaign_id',ownerUid:'owner_id',active:'active',deletedAt:'archived_at'},
  captures:{candidateId:'person_id',linkId:'link_id',ownerUid:'owner_id',status:'status',conflict:'conflict'},
  process_templates:{campaignId:'campaign_id',familyId:'family_id',version:'revision',name:'name',description:'description',position:'position_name',rules:'rules'},
  message_templates:{campaignId:'campaign_id',name:'name',type:'communication_type',content:'body'},

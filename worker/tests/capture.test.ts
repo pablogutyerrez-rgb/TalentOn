@@ -226,6 +226,16 @@ describe('Captación', () => {
     await call(`/api/capture/links/${linkId}`, 'PATCH', { active: false });
     await expect(call(`/api/public/capture/${linkId}`, 'GET', undefined, undefined)).rejects.toThrow('Este enlace no está disponible.');
   });
+  it('eliminar enlace conserva el historial, impide reactivarlo y exige propietario', async () => {
+    documents.set(`captations/${eventId}`, { id: eventId, linkId, ownerUid: owner.uid, companyId: owner.companyId });
+    await expect(call(`/api/capture/links/${linkId}`, 'DELETE', undefined, { ...owner, uid: 'other' })).rejects.toThrow('FORBIDDEN');
+    await call(`/api/capture/links/${linkId}`, 'DELETE');
+    expect(documents.get(`captureLinks/${linkId}`)).toMatchObject({ active: false, deletedAt: expect.any(String) });
+    expect(documents.get(`captations/${eventId}`)).toBeTruthy();
+    expect(((await (await call('/api/capture/links'))!.json()) as any).items).toHaveLength(0);
+    await expect(call(`/api/public/capture/${linkId}`, 'GET', undefined, undefined)).rejects.toThrow('Este enlace no está disponible.');
+    await expect(call(`/api/capture/links/${linkId}`, 'PATCH', { active: true })).rejects.toThrow('NOT_FOUND');
+  });
   it('rechaza cambios sobre enlaces ajenos', async () => {
     await expect(call(`/api/capture/links/${linkId}`, 'PATCH', { active: false }, { ...owner, uid: 'other' })).rejects.toThrow('FORBIDDEN');
   });

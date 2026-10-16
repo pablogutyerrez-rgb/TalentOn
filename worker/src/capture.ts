@@ -7,7 +7,7 @@ import {readCaptureSubmission,verifyCaptureFile,type CaptureFile} from './captur
 export type Data = Record<string, any>;
 type Actor = { uid: string; role: string; companyId: string; allowedModules: string[]; subordinateUserIds?: string[] };
 export type Helpers = { token: (env: Env) => Promise<string>; encode: (data: Data) => any; decode: (data: any) => Data };
-export const captureSources = ['Facebook', 'TikTok', 'LinkedIn', 'WhatsApp', 'Referidos', 'Otros'];
+export const captureSources = ['Facebook', 'TikTok', 'LinkedIn', 'WhatsApp', 'Pauta pagada', 'Referidos', 'Otros'];
 export const captureStates = ['Nuevo', 'Contactado', 'No responde', 'Interesado', 'No interesado'];
 export class CaptureError extends Error { constructor(message: string, public status = 400) { super(message); } }
 const text = (v: unknown, max: number) => typeof v === 'string' ? v.normalize('NFKC').trim().replace(/\s+/g, ' ').slice(0, max) : '';
@@ -121,12 +121,12 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
     const queryScope = actor.role === 'ADMIN' ? {} : { companyId: actor.companyId };
     const links = await store.query('captureLinks', queryScope, undefined, 2001), events = await store.query('captations', queryScope, undefined, 2001);
     if (links.length > 2000 || events.length > 2000) throw new CaptureError('Los registros superan el límite gerencial. Se requiere paginación antes de consolidar.', 503);
-    return reply({ owners, links: links.filter(scoped), events: events.filter(scoped).map(({ possibleIds, ...e }) => actor.role === 'ADMIN' ? { ...e, possibleIds } : e), generatedAt: new Date().toISOString() });
+    return reply({ owners, links: links.filter(e => !e.deletedAt && scoped(e)), events: events.filter(scoped).map(({ possibleIds, ...e }) => actor.role === 'ADMIN' ? { ...e, possibleIds } : e), generatedAt: new Date().toISOString() });
   }
   const pub = path.match(/^\/api\/public\/capture\/([a-f0-9]{48})$/);
   if (pub && ['GET', 'POST'].includes(request.method)) {
     const link = await store.get(`captureLinks/${pub[1]}`);
-    if (!link || link.active !== true) throw new CaptureError('Este enlace no está disponible.', 404);
+    if (!link || link.active !== true || link.deletedAt) throw new CaptureError('Este enlace no está disponible.', 404);
     const owner = await store.get(`users/${link.ownerUid}`);
     if (!owner || owner.enabled === false || owner.status !== 'ACTIVO' || !['ADMIN', 'RECLUTADOR'].includes(owner.role) || owner.companyId !== link.companyId || (owner.role !== 'ADMIN' && !(owner.allowedModules || owner.module || []).includes('SELECCION'))) throw new CaptureError('Este enlace no está disponible.', 404);
     // Determine the form from the stored company, never from a client-supplied ID.
@@ -180,7 +180,7 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
     const lockKey = await digest(env.CAPTURE_HASH_SECRET!, `identity:${link.companyId}:${applicant.documentType}:${applicant.documentNumber}`);
     const result = await store.atomic(async tx => {
       const current = await store.get(`captureLinks/${pub[1]}`, tx);
-      if (!current?.active) throw new CaptureError('Este enlace no está disponible.', 404);
+      if (!current?.active || current.deletedAt) throw new CaptureError('Este enlace no está disponible.', 404);
       const currentOwner = await store.get(`users/${link.ownerUid}`, tx);
       if (!currentOwner || currentOwner.enabled === false || currentOwner.status !== 'ACTIVO' || currentOwner.companyId !== link.companyId || !['ADMIN', 'RECLUTADOR'].includes(currentOwner.role) || (currentOwner.role !== 'ADMIN' && !(currentOwner.allowedModules || currentOwner.module || []).includes('SELECCION'))) throw new CaptureError('Este enlace no está disponible.', 404);
       const previous = await store.get(`captureRequests/${requestKey}`, tx);
@@ -231,7 +231,7 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
   if (actor.role === 'ANALISTA_SELECCION' && !/^\/api\/capture\/candidates\/[^/]+$/.test(path)) throw new CaptureError('FORBIDDEN', 403);
   const filter = actor.role === 'ADMIN' ? {} : { ownerUid: actor.uid };
   if (path === '/api/capture/links' && request.method === 'GET') {
-    const data = (await store.query('captureLinks', filter)).filter(x => actor.role === 'ADMIN' || x.companyId === actor.companyId);
+    const data = (await store.query('captureLinks', filter)).filter(x => !x.deletedAt && (actor.role === 'ADMIN' || x.companyId === actor.companyId));
     return reply({ items: data.slice(0, 200), truncated: data.length > 200 });
   }
   if (path === '/api/capture/links' && request.method === 'POST') {
@@ -242,10 +242,23 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
     return reply(link, 201);
   }
   const linkPath = path.match(/^\/api\/capture\/links\/([a-f0-9]{48})$/);
+  if (linkPath && request.method === 'DELETE') {
+    await store.atomic(async tx => {
+      const link = await store.get(`captureLinks/${linkPath[1]}`, tx);
+      if (!link || link.deletedAt) throw new CaptureError('NOT_FOUND', 404);
+      owns(actor, link);
+      const at = new Date().toISOString();
+      return { result: undefined, writes: [
+        { path: `captureLinks/${linkPath[1]}`, data: { active: false, deletedAt: at, updatedAt: at }, patch: true },
+        { path: `captureAudit/${crypto.randomUUID()}`, data: { at, actorUid: actor.uid, linkId: link.id, action: 'Eliminación enlace' }, create: true },
+      ] };
+    });
+    return reply({ ok: true });
+  }
   if (linkPath && request.method === 'PATCH') {
     const input = await body(request); if (typeof input.active !== 'boolean') throw new CaptureError('INVALID_STATE');
     await store.atomic(async tx => {
-      const link = await store.get(`captureLinks/${linkPath[1]}`, tx); if (!link) throw new CaptureError('NOT_FOUND', 404); owns(actor, link);
+      const link = await store.get(`captureLinks/${linkPath[1]}`, tx); if (!link || link.deletedAt) throw new CaptureError('NOT_FOUND', 404); owns(actor, link);
       const at = new Date().toISOString();
       return { result: undefined, writes: [{ path: `captureLinks/${linkPath[1]}`, data: { active: input.active, updatedAt: at }, patch: true }, { path: `captureAudit/${crypto.randomUUID()}`, data: { at, actorUid: actor.uid, linkId: link.id, active: input.active, action: 'Estado enlace' }, create: true }] };
     }); return reply({ ok: true });

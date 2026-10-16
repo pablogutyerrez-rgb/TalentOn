@@ -415,9 +415,14 @@ describe('Transición relacional PostgreSQL 17',()=>{
    for(const record of records)expect(bootstrap.data.campaigns.find((c:any)=>c.id===record.id)).toMatchObject({title:'Unified edited',companyId:record.companyId});
    expect((await call('/api/campaigns/'+records[0].id+'?unified=1','PATCH',{title:'Forbidden'},trainer)).status).toBe(403);
    expect((await call('/api/campaigns?unified=1','POST',{...payload,companyId:'techcenter',companyCampaignId:'techcenter:bitel-portabilidad'},trainer)).status).toBe(403);
-   const link=await call('/api/capture/links?unified=1','POST',{companyId:'techcenter',companyCampaignId:'techcenter:bitel-portabilidad',source:'Facebook'});expect(link.status).toBe(201);
+   const link=await call('/api/capture/links?unified=1','POST',{companyId:'techcenter',companyCampaignId:'techcenter:bitel-portabilidad',source:'Pauta pagada'});expect(link.status).toBe(201);
    expect((await call('/api/capture/links/'+link.data.id+'?unified=1','PATCH',{active:false})).status).toBe(200);
-   expect((await call('/api/capture/links?unified=1')).data.items.find((v:any)=>v.id===link.data.id)).toMatchObject({companyId:'techcenter',active:false});
+   expect((await call('/api/capture/links?unified=1')).data.items.find((v:any)=>v.id===link.data.id)).toMatchObject({companyId:'techcenter',source:'Pauta pagada',active:false});
+   expect((await call('/api/capture/links/'+link.data.id+'?unified=1','DELETE')).status).toBe(200);
+   expect((await call('/api/capture/links?unified=1')).data.items.find((v:any)=>v.id===link.data.id)).toBeUndefined();
+   expect((await db.query('select active,archived_at from talent.capture_links where id=$1',[link.data.id])).rows[0]).toMatchObject({active:false,archived_at:expect.any(Date)});
+   expect((await call('/api/public/capture/'+link.data.id)).status).not.toBe(200);
+   expect((await call('/api/capture/links/'+link.data.id+'?unified=1','PATCH',{active:true})).status).not.toBe(200);
    const own=await call('/api/bootstrap?unified=1','GET',undefined,trainer);expect(own.status).toBe(200);expect(own.data.campaigns.every((c:any)=>c.companyId==='tenant')).toBe(true);
    const permission=(await db.query("select has_function_privilege('authenticated','public.talent_org_record_company(uuid,text,text,text)','EXECUTE') as allowed")).rows[0];expect(permission.allowed).toBe(false);
    // Identical historical person IDs in different companies must remain distinct in the UI.

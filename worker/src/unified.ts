@@ -38,7 +38,7 @@ export async function unifiedRequest(request:Request,env:Env,dispatch:Dispatch):
   return Response.json({items:merge('items'),truncated:chunks.some(c=>c?.data.truncated)});
  }
  let input:Record<string,any>={};
- if(request.headers.get('content-type')?.includes('application/json')&&!['GET','HEAD'].includes(request.method)){input=unqualifyCandidates(await request.clone().json(),requestedCompanies);rewrittenBody=JSON.stringify(input);}
+ if(request.body&&request.headers.get('content-type')?.includes('application/json')&&!['GET','HEAD'].includes(request.method)){input=unqualifyCandidates(await request.clone().json(),requestedCompanies);rewrittenBody=JSON.stringify(input);}
  let kind='',id='';
  const match=url.pathname.match(/^\/api\/(?:selection\/|talent\/|capture\/)?(campaigns|messages|candidates|trainings|applications|events|attachments|links)\/([^/]+)/);
  if(match){kind=({campaigns:'campaign',messages:'campaign',candidates:'candidate',trainings:'training',applications:'application',events:'capture',attachments:'capture',links:'link'} as Record<string,string>)[match[1]];id=decodeURIComponent(match[2]);}

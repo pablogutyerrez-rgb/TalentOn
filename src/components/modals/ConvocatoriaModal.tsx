@@ -11,12 +11,15 @@ import {
   ShieldCheck, 
   Plus, 
   Trash2,
-  Briefcase
+  Briefcase,
+  Upload,
+  Download
 } from 'lucide-react';
 import { useTalent } from '../../context/TalentContext';
 import { CampaignCall, ProcessType, ManagementType, ConvocatoriaStatus } from '../../types';
-import { getWorkerErrorMessage } from '../../services/workerApi';
+import { getWorkerErrorMessage, workerApi } from '../../services/workerApi';
 import {CompanyCampaignPicker} from '../common/CompanyCampaignPicker';
+import { CANDIDATE_IMPORT_TEMPLATE, parseCandidateCsv, type CandidateImportRow } from '../../utils/candidateImport';
 
 interface ConvocatoriaModalProps {
   isOpen: boolean;
@@ -61,9 +64,29 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
   const [newReq, setNewReq] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [importRows, setImportRows] = useState<CandidateImportRow[]>([]);
+  const [importFileName, setImportFileName] = useState('');
+  const [importedLines, setImportedLines] = useState<number[]>([]);
+  const [importFailures, setImportFailures] = useState<string[]>([]);
+  const [importProgress, setImportProgress] = useState(0);
+  const [createdCampaignId, setCreatedCampaignId] = useState('');
+  const [importInvalid, setImportInvalid] = useState(false);
+  const [readingImport, setReadingImport] = useState(false);
+  const [importComplete, setImportComplete] = useState(false);
 
   useEffect(() => {
-    if (isOpen) setSubmitError('');
+    if (isOpen) {
+      setSubmitError('');
+      setImportRows([]);
+      setImportFileName('');
+      setImportedLines([]);
+      setImportFailures([]);
+      setImportProgress(0);
+      setCreatedCampaignId('');
+      setImportInvalid(false);
+      setReadingImport(false);
+      setImportComplete(false);
+    }
     if (convocatoriaToEdit) {
       setCompany(convocatoriaToEdit.company || convocatoriaToEdit.client || '');
       setTitle(convocatoriaToEdit.title);
@@ -110,7 +133,7 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
         'Buena modulación verbal y dicción'
       ]);
     }
-  }, [convocatoriaToEdit, isOpen, currentUser]);
+  }, [convocatoriaToEdit, isOpen, currentUser.id]);
 
   if (!isOpen) return null;
 
@@ -124,9 +147,43 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
     setRequirementsList(prev => prev.filter((_, i) => i !== index));
   };
 
+  const handleImportFile = async (file?: File) => {
+    setReadingImport(Boolean(file));
+    setImportInvalid(false);
+    setImportComplete(false);
+    setImportRows([]);
+    setImportFileName('');
+    setImportedLines([]);
+    setImportFailures([]);
+    setImportProgress(0);
+    setSubmitError('');
+    if (!file) return;
+    try {
+      if (!/\.csv$/i.test(file.name) || file.size > 1024 * 1024) throw new Error('Selecciona un CSV de hasta 1 MB.');
+      const rows = parseCandidateCsv(await file.text());
+      setImportRows(rows);
+      setImportFileName(file.name);
+    } catch (error) {
+      setImportInvalid(true);
+      setSubmitError(error instanceof Error ? error.message : 'No se pudo leer el CSV.');
+    } finally {
+      setReadingImport(false);
+    }
+  };
+
+  const downloadTemplate = () => {
+    const url = URL.createObjectURL(new Blob(['\uFEFF', CANDIDATE_IMPORT_TEMPLATE], { type: 'text/csv;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'plantilla-postulantes.csv';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
+    if (importInvalid || readingImport) return;
     if (!company.trim() || !title.trim()) return;
 
     const assignedAnalyst = availableUsers.find(u => u.id === assignedAnalystId);
@@ -160,9 +217,36 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
     setIsSubmitting(true);
     setSubmitError('');
     try {
+      let campaignId = convocatoriaToEdit?.id || createdCampaignId;
       if (convocatoriaToEdit) await updateConvocatoria(convocatoriaToEdit.id, payload);
-      else await createConvocatoria(payload);
-      onClose();
+      else if (!campaignId) {
+        const created = await createConvocatoria(payload);
+        campaignId = created.id;
+        setCreatedCampaignId(campaignId);
+      }
+      if (!importRows.length) { onClose(); return; }
+      const imported = new Set(importedLines);
+      const failures: string[] = [];
+      let processed = imported.size;
+      setImportProgress(processed);
+      for (const row of importRows) {
+        if (imported.has(row.line)) continue;
+        try {
+          await workerApi('/api/candidates', { method: 'POST', body: JSON.stringify({
+            campaignId, dni: row.dni, fullName: row.fullName, phone: row.phone,
+            email: row.email, source: row.source, recruiterId: currentUser.id,
+          }) });
+          imported.add(row.line);
+          setImportedLines([...imported]);
+        } catch (error) {
+          failures.push(`Línea ${row.line} (${row.dni}): ${getWorkerErrorMessage(error)}`);
+        }
+        setImportProgress(++processed);
+      }
+      setImportFailures(failures);
+      if (failures.length) {
+        setSubmitError(`Convocatoria guardada. ${imported.size} de ${importRows.length} postulantes importados; revisa las filas fallidas.`);
+      } else setImportComplete(true);
     } catch (error) {
       setSubmitError(getWorkerErrorMessage(error, 'No se pudo guardar la convocatoria. Inténtalo nuevamente.'));
     } finally {
@@ -192,6 +276,8 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
             </div>
           </div>
           <button
+            type="button"
+            disabled={isSubmitting}
             onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
           >
@@ -202,7 +288,7 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
           {submitError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-medium text-rose-700">{submitError}</div>}
-          
+          <fieldset disabled={!!createdCampaignId} className="space-y-6">
           {/* Section 1: Datos Principales */}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-3 flex items-center gap-2">
@@ -550,6 +636,34 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
             </div>
           </div>
 
+          </fieldset>
+          {/* Importación opcional de postulantes asociados a la convocatoria */}
+          {!isRecruiter && <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-sm font-bold text-slate-800">Importar postulantes (opcional)</h4>
+                <p className="text-xs text-slate-600">Se asociarán a esta convocatoria al guardarla. Máximo 200 filas por CSV.</p>
+              </div>
+              <button type="button" onClick={downloadTemplate} className="inline-flex items-center gap-1 text-xs font-semibold text-sky-700 hover:underline"><Download className="h-4 w-4" />Descargar plantilla</button>
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-3 text-xs text-slate-700">
+              <Upload className="h-4 w-4" />
+              <span>{importFileName || 'Seleccionar archivo CSV UTF-8'}</span>
+              <input type="file" accept=".csv,text/csv" className="sr-only" disabled={isSubmitting} onChange={event => void handleImportFile(event.target.files?.[0])} />
+            </label>
+            {importRows.length > 0 && <div className="space-y-2 text-xs text-slate-700">
+              <p><strong>{importRows.length} postulantes validados.</strong> Columnas obligatorias: DNI y nombre. Celular, correo y fuente son opcionales.</p>
+              <div className="max-h-28 overflow-auto rounded-lg border border-slate-200 bg-white">
+                {importRows.slice(0, 5).map(row => <p key={row.line} className="border-b border-slate-100 px-3 py-1.5">{row.dni} · {row.fullName}</p>)}
+                {importRows.length > 5 && <p className="px-3 py-1.5 text-slate-500">Y {importRows.length - 5} más…</p>}
+              </div>
+            </div>}
+            {isSubmitting && importRows.length > 0 && <p role="status" className="text-xs text-sky-700">Importando {importProgress} de {importRows.length}…</p>}
+            {createdCampaignId && <p className="text-xs text-amber-700">La convocatoria ya quedó creada. Puedes reintentar las filas fallidas sin duplicarla.</p>}
+            {importComplete && <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">Importación completada: {importedLines.length} postulantes asociados a la convocatoria.</p>}
+            {importFailures.length > 0 && <div role="alert" className="max-h-28 overflow-auto rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{importFailures.map(message => <p key={message}>{message}</p>)}</div>}
+          </section>}
+
           {/* Footer Actions */}
           <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-3">
             <button
@@ -558,15 +672,15 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 border border-slate-300 rounded-lg hover:bg-slate-50 cursor-pointer"
             >
-              Cancelar
+              {importComplete ? 'Cerrar' : 'Cancelar'}
             </button>
-            <button
+            {!importComplete && <button
               type="submit"
-              disabled={isRecruiter || isSubmitting}
+              disabled={isRecruiter || isSubmitting || importInvalid || readingImport}
               className="px-5 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-50"
             >
-              {isSubmitting ? 'Guardando…' : convocatoriaToEdit ? 'Guardar Cambios' : 'Crear Convocatoria'}
-            </button>
+              {isSubmitting ? 'Guardando…' : createdCampaignId ? 'Reintentar importación' : convocatoriaToEdit ? 'Guardar Cambios' : importRows.length ? 'Crear e importar' : 'Crear Convocatoria'}
+            </button>}
           </div>
 
         </form>
