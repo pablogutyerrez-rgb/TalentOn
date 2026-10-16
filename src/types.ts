@@ -22,6 +22,7 @@ export interface CompanyAccess {
   companyId: string; role: UserRole; enabled: boolean; allCampaigns: boolean; scopes: string[]; version: number | null;
 }
 export interface UserProfile {
+  companyProfiles?: {companyId:string;role:UserRole;allowedModules:AppModuleName[]}[];
   id: string;
   companyId?: string;
   companies?: {id:string;name:string;managed:boolean}[];
@@ -449,6 +450,8 @@ export interface ConvocatoriaStatusChange {
 }
 
 export interface CampaignCall {
+  companyId?: string;
+  companyName?: string;
   companyCampaignId?: string;
   id: string;
   code: string;

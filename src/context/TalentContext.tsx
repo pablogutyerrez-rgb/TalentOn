@@ -156,7 +156,7 @@ interface TalentContextType {
 
   // Candidate Selection operations
   addCandidate: (data: Partial<CandidateRecord>) => Promise<{ success: boolean; message?: string; candidate?: CandidateRecord }>;
-  checkDuplicateCandidate: (dni: string, phone: string, excludeId?: string) => { isDuplicate: boolean; matchedCandidate?: CandidateRecord; reason?: string };
+  checkDuplicateCandidate: (dni: string, phone: string, excludeId?: string, companyId?:string) => { isDuplicate: boolean; matchedCandidate?: CandidateRecord; reason?: string };
   updateCandidateSelectionStage: (candidateId: string, stage: SelectionStage, discardReason?: string, discardDetail?: string, observation?: string) => Promise<void>;
   updateInterviewResult: (candidateId: string, interview: InterviewRecord) => Promise<void>;
   updateTechnicalVerification: (candidateId: string, techVerif: TechnicalVerificationRecord) => Promise<void>;
@@ -371,7 +371,7 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       running=true;
       try {
         const data=await workerApi<{users:UserProfile[];campaigns:CampaignCall[];cohorts:TrainingCohort[];candidates:CandidateRecord[]}>('/api/bootstrap');
-        if(active){const self=data.users.find(u=>u.id===currentUser.id);if(self)setCurrentUserState(prev=>normalizeUserIdentity({...prev,...self,...(prev.managedCompany?{scopeCampaignIds:prev.scopeCampaignIds,role:prev.role,allowedModules:prev.allowedModules}:{})}));setUsers(data.users.map(normalizeUserIdentity));setCampaigns(data.campaigns.map(c=>campaignFromFirestore(c.id,c as unknown as Record<string,unknown>)));setCohorts(data.cohorts.map(c=>trainingFromFirestore(c.id,c as unknown as Record<string,unknown>)));setCandidates(data.candidates.map(c=>candidateFromFirestore(c.id,c as unknown as Record<string,unknown>)));setConnectionError('');}
+        if(active){const self=data.users.find(u=>u.id===currentUser.id);if(self)setCurrentUserState(prev=>normalizeUserIdentity({...prev,...self,scopeCampaignIds:prev.scopeCampaignIds,role:prev.role,allowedModules:prev.allowedModules,companyId:prev.companyId}));setUsers(data.users.map(normalizeUserIdentity));setCampaigns(data.campaigns.map(c=>campaignFromFirestore(c.id,c as unknown as Record<string,unknown>)));setCohorts(data.cohorts.map(c=>trainingFromFirestore(c.id,c as unknown as Record<string,unknown>)));setCandidates(data.candidates.map(c=>candidateFromFirestore(c.id,c as unknown as Record<string,unknown>)));setConnectionError('');}
       } catch { if(active)setConnectionError('No se pudieron actualizar los datos de Supabase. Intenta nuevamente.'); }
       finally {running=false;if(active&&queued){queued=false;void refresh();}}
     };
@@ -551,11 +551,12 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
 
   // Anti-duplication check
-  const checkDuplicateCandidate = (dni: string, phone: string, excludeId?: string) => {
+  const checkDuplicateCandidate = (dni: string, phone: string, excludeId?: string, companyId?:string) => {
     const cleanDni = dni.trim().replace(/\D/g, '');
     const cleanPhone = phone.trim().replace(/\D/g, '');
 
-    const existingByDni = candidates.find(c => c.id !== excludeId && c.dni.replace(/\D/g, '') === cleanDni);
+    const sameCompany=candidates.filter(c=>!companyId||c.companyId===companyId);
+    const existingByDni = sameCompany.find(c => c.id !== excludeId && c.dni.replace(/\D/g, '') === cleanDni);
     if (existingByDni) {
       return {
         isDuplicate: true,
@@ -565,7 +566,7 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     if (cleanPhone.length >= 8) {
-      const existingByPhone = candidates.find(c => c.id !== excludeId && c.phone.replace(/\D/g, '').endsWith(cleanPhone.slice(-8)));
+      const existingByPhone = sameCompany.find(c => c.id !== excludeId && c.phone.replace(/\D/g, '').endsWith(cleanPhone.slice(-8)));
       if (existingByPhone) {
         return {
           isDuplicate: true,
@@ -584,12 +585,12 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const phone = data.phone || '';
 
     // Check duplicate
-    const dupCheck = checkDuplicateCandidate(dni, phone);
+    const targetCampaign = campaigns.find(c => c.id === data.campaignId);
+    const dupCheck = checkDuplicateCandidate(dni, phone,undefined,targetCampaign?.companyId);
     if (dupCheck.isDuplicate) {
       return { success: false, message: dupCheck.reason };
     }
 
-    const targetCampaign = campaigns.find(c => c.id === data.campaignId) || campaigns[0];
     
     // Assign recruiter
     let assignedRecruiterId = data.recruiterId || currentUser.id;
@@ -733,6 +734,7 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }));
 
     const newCamp: CampaignCall = {
+      companyId:campData.companyId,
       companyCampaignId:campData.companyCampaignId,
       id: newId,
       code,

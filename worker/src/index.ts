@@ -4,9 +4,11 @@ import { relationalSession, changeFirstPassword, type SessionProfile } from './s
 import { RelationalRuntime, type RuntimeEnv } from './relationalRuntime';
 import { relationalIdentity } from './supabaseIdentity';
 import { organizationRequest,organizationUserGuard,organizationUserHome } from './organization';
+import { unifiedRequest } from './unified';
 import { SupabaseError, type SupabaseEnv } from './supabase';
 import { handleSelectionAdvanced, checkProcessApproval, checkProcessStage } from './selectionAdvanced';
 export interface Env extends SupabaseEnv, RuntimeEnv {
+  VERIFIED_SESSION?: SessionProfile;
   RELATIONAL_ACTOR?: SessionProfile;
   DATA_PROVIDER?: string;
   CAPTURE_HASH_SECRET?: string;
@@ -1177,8 +1179,15 @@ async function relationalBootstrap(request:Request,env:Env,actor:Profile) {
   return response({campaigns,cohorts,candidates,users},200,cors(request,env));
 }
 
-export default {async fetch(request:Request,env:Env):Promise<Response>{
+const worker={async fetch(request:Request,env:Env):Promise<Response>{
   const path=new URL(request.url).pathname;
+  if(env.ORG_ENABLED==='true'&&new URL(request.url).searchParams.get('unified')==='1'&&request.method!=='OPTIONS'&&!path.startsWith('/api/public/')&&path!=='/api/session/password'){
+    try{
+      if(!originAllowed(request,env))throw new SupabaseError(403,'ORIGIN_NOT_ALLOWED');
+      const result=await unifiedRequest(request,env,worker.fetch);
+      return new Response(result.body,{status:result.status,headers:{...Object.fromEntries(result.headers),...cors(request,env)}});
+    }catch(e){return response({message:e instanceof SupabaseError?e.code:'UNIFIED_READ_FAILED'},e instanceof SupabaseError?e.status:500,cors(request,env));}
+  }
   if(env.DATA_PROVIDER==='firebase'||request.method==='OPTIONS'||path==='/health'||path==='/api/session'||path==='/api/session/password')return handleRequest(request,env);
   const headers=cors(request,env);let store:RelationalRuntime|undefined;let scoped:Env|undefined;
   const newObjects=new Set<string>();
@@ -1191,7 +1200,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   try{
     if(!originAllowed(request,env))throw new Error('ORIGIN_NOT_ALLOWED');
     const token=path.match(/^\/api\/public\/capture\/([a-f0-9]{48})$/)?.[1];
-    let actor=token?undefined:await relationalSession(request,env);
+    let actor=token?undefined:env.VERIFIED_SESSION||await relationalSession(request,env);
     const adminTarget=path.match(/^\/api\/users\/([^/]+)\/(access|reset-password)$/);
     if(actor?.globalAdmin&&adminTarget&&['PATCH','POST'].includes(request.method)){
       const home=await organizationUserHome(env,actor,decodeURIComponent(adminTarget[1]));
@@ -1215,3 +1224,4 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
     return response({message:code},status,headers);
   }
 }};
+export default worker;

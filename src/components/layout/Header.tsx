@@ -175,7 +175,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center gap-3">
         
         {/* Global Instant Search */}
-        {currentUser.companies && currentUser.companies.length>1 && <select aria-label="Empresa activa" className="max-w-56 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={currentUser.companyId} onChange={e=>{if(window.confirm('Cambiar de empresa recargará la vista. Guarda primero tus cambios pendientes.')){localStorage.setItem('talent:company',e.target.value);window.location.reload();}}}>{currentUser.companies.map(c=><option key={c.id} value={c.id}>{currentUser.globalAdmin&&!c.managed?'Talent-On · Consolidado':c.name}</option>)}</select>}
+        <span className="hidden text-xs text-slate-500 lg:inline">Talent-On · Gestión unificada</span>
         <div className="relative w-64 hidden sm:block">
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input

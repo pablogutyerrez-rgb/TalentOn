@@ -1,6 +1,7 @@
 import { supabaseAccessToken } from './supabase';
 
 const baseUrl = (import.meta.env.VITE_ADMIN_API_URL || import.meta.env.VITE_WORKER_API_URL)?.replace(/\/$/, '');
+const unifiedUrl=(path:string)=>`${baseUrl}${path}${path.includes('?')?'&':'?'}unified=1`;
 
 type WorkerErrorPayload = { message?: unknown };
 
@@ -12,6 +13,9 @@ export class WorkerApiError extends Error {
 }
 
 const WORKER_ERROR_MESSAGES: Record<string, string> = {
+  COMPANY_REQUIRED: 'Selecciona la empresa a la que pertenece el registro.',
+  COMPANY_CONTEXT_AMBIGUOUS: 'Este identificador existe en varias empresas. No se modificó ningún registro; solicita revisar su identificación.',
+  UNIFIED_READ_FAILED: 'No se pudo cargar la vista conjunta. Intenta actualizar; no se muestran resultados parciales.',
   'Worker API no está configurada o no existe sesión.': 'El servicio administrativo no está configurado o tu sesión venció.',
   WORKER_NETWORK_UNREACHABLE: 'No se pudo conectar con el servicio. Verifica tu conexión e inténtalo nuevamente.',
   FIREBASE_TOKEN_UNAVAILABLE: 'No se pudo validar tu sesión. Vuelve a iniciar sesión e inténtalo nuevamente.',
@@ -81,9 +85,9 @@ export async function workerApi<T>(path: string, init: RequestInit = {}): Promis
   const token = await authenticatedToken();
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}${path}`, {
+    response = await fetch(unifiedUrl(path), {
       ...init,
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(localStorage.getItem('talent:company')?{'X-Talent-Company':localStorage.getItem('talent:company')!}:{}), ...init.headers },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...init.headers },
     });
   } catch {
     console.error(`[Worker API] ${init.method ?? 'GET'} ${path} network failure from ${window.location.origin}`);
@@ -109,7 +113,7 @@ async function authenticatedToken(): Promise<string> {
 export async function workerUpload<T>(path: string, formData: FormData): Promise<T> {
   const token = await authenticatedToken();
   let result: Response;
-  try { result = await fetch(`${baseUrl}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, ...(localStorage.getItem('talent:company')?{'X-Talent-Company':localStorage.getItem('talent:company')!}:{}) }, body: formData }); }
+  try { result = await fetch(unifiedUrl(path), { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: formData }); }
   catch { throw new WorkerApiError(0, 'WORKER_NETWORK_UNREACHABLE'); }
   if (!result.ok) {
     const payload = await result.json().catch((): WorkerErrorPayload => ({}));
@@ -123,7 +127,7 @@ export async function workerUpload<T>(path: string, formData: FormData): Promise
 export async function workerDownload(path: string): Promise<Blob> {
   const token = await authenticatedToken();
   let result: Response;
-  try { result = await fetch(`${baseUrl}${path}`, { headers: { Authorization: `Bearer ${token}`, ...(localStorage.getItem('talent:company')?{'X-Talent-Company':localStorage.getItem('talent:company')!}:{}) } }); }
+  try { result = await fetch(unifiedUrl(path), { headers: { Authorization: `Bearer ${token}` } }); }
   catch { throw new WorkerApiError(0, 'WORKER_NETWORK_UNREACHABLE'); }
   if (!result.ok) {
     const payload = await result.json().catch((): WorkerErrorPayload => ({}));

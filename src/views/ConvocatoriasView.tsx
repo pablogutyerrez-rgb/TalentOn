@@ -84,7 +84,7 @@ export const ConvocatoriasView: React.FC = () => {
   const [convocatoriaForSources, setConvocatoriaForSources] = useState<CampaignCall | null>(null);
   const [convocatoriaForStatus, setConvocatoriaForStatus] = useState<CampaignCall | null>(null);
 
-  const companies = useMemo(() => Array.from(new Set(scopedCampaigns.map(item => item.company || item.client || '').filter(Boolean))).sort(), [scopedCampaigns]);
+  const companies = useMemo(() => Array.from(new Map(scopedCampaigns.filter(c=>c.companyId).map(c=>[c.companyId!,c.companyName||c.companyId!])).entries()), [scopedCampaigns]);
   const areas = useMemo(() => Array.from(new Set(scopedCampaigns.map(item => item.area).filter(Boolean))).sort(), [scopedCampaigns]);
   const locations = useMemo(() => Array.from(new Set(scopedCampaigns.map(item => item.location).filter(Boolean))).sort(), [scopedCampaigns]);
   const candidateCounts = useMemo(() => {
@@ -118,7 +118,7 @@ export const ConvocatoriasView: React.FC = () => {
       const query = searchTerm.toLowerCase();
       if (![campaign.title, campaign.code, campaign.company, campaign.client, campaign.location].some(value => value?.toLowerCase().includes(query))) return false;
     }
-    if (selectedCompany !== 'ALL' && campaign.company !== selectedCompany && campaign.client !== selectedCompany) return false;
+    if (selectedCompany !== 'ALL' && campaign.companyId !== selectedCompany) return false;
     if (selectedArea !== 'ALL' && campaign.area !== selectedArea) return false;
     if (selectedSelector !== 'ALL' && !campaign.responsibles?.some(item => item.userId === selectedSelector) && campaign.assignedAnalystId !== selectedSelector) return false;
     if (selectedProcessType !== 'ALL' && campaign.processType !== selectedProcessType) return false;
@@ -188,7 +188,7 @@ export const ConvocatoriasView: React.FC = () => {
       </div>
 
       {showAdvancedFilters && <div className="mt-3 grid grid-cols-1 gap-2.5 border-t border-slate-100 pt-3 sm:grid-cols-2 xl:grid-cols-5">
-        <select value={selectedCompany} onChange={event => setSelectedCompany(event.target.value)} className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs"><option value="ALL">Todas las empresas</option>{companies.map(company => <option key={company}>{company}</option>)}</select>
+        <select aria-label="Filtrar empresa responsable" value={selectedCompany} onChange={event => setSelectedCompany(event.target.value)} className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs"><option value="ALL">Todas las empresas</option>{companies.map(([id,name]) => <option key={id} value={id}>{name}</option>)}</select>
         <select value={selectedArea} onChange={event => setSelectedArea(event.target.value)} className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs"><option value="ALL">Todas las áreas</option>{areas.map(area => <option key={area}>{area}</option>)}</select>
         <select value={selectedProcessType} onChange={event => setSelectedProcessType(event.target.value)} className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs"><option value="ALL">Todos los procesos</option><option value="EXTERNO">Externo</option><option value="INTERNO">Interno</option><option value="MIXTO">Mixto</option></select>
         <select value={selectedManagementType} onChange={event => setSelectedManagementType(event.target.value)} className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs"><option value="ALL">Todas las modalidades</option><option value="PRESENCIAL">Presencial</option><option value="REMOTO">Remoto</option><option value="HIBRIDO">Híbrido</option></select>
@@ -209,7 +209,7 @@ export const ConvocatoriasView: React.FC = () => {
               const responsible = campaign.assignedAnalystName || campaign.responsibles?.[0]?.userName || 'Sin asignar';
               return <tr key={campaign.id} className="transition hover:bg-slate-50/80">
                 <td className="px-4 py-3"><div className="font-semibold text-slate-900">{campaign.code}</div><div className="mt-1 text-[10px] text-slate-500">{campaign.area || 'Operaciones'}</div><div className="mt-1 flex items-center gap-1 text-[9px] text-slate-400"><CalendarDays className="h-3 w-3" />Publicada: {campaign.requestDate}</div></td>
-                <td className="px-3 py-3"><div className="font-semibold text-slate-900">{campaign.title}</div><div className="mt-1 text-[10px] text-slate-500">{campaign.company || campaign.client}</div><div className="mt-1 text-[10px] text-slate-400">{campaign.location}</div></td>
+                <td className="px-3 py-3"><div className="font-semibold text-slate-900">{campaign.title}</div><div className="mt-1 text-[10px] font-semibold text-slate-600">{campaign.companyName||campaign.companyId}</div><div className="mt-1 text-[10px] text-slate-500">{campaign.company || campaign.client}</div><div className="mt-1 text-[10px] text-slate-400">{campaign.location}</div></td>
                 <td className="px-3 py-3 text-center"><div className="font-bold text-slate-900">{metrics.vacancies}</div><div className="text-[9px] text-slate-400">Total</div></td>
                 <td className="px-3 py-3"><div className={`font-semibold ${metrics.coverage < 40 ? 'text-amber-600' : 'text-emerald-700'}`}>{metrics.coverage}%</div><div className="mt-1.5 h-1.5 w-24 rounded-full bg-slate-200"><div className={`h-full rounded-full ${metrics.coverage < 40 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${metrics.coverage}%` }} /></div><div className="mt-1 text-[9px] text-slate-400">{metrics.hired} de {metrics.vacancies}</div></td>
                 <td className="px-3 py-3"><div className="flex items-center gap-2"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[9px] font-semibold text-slate-600">{responsible.split(' ').map(value => value[0]).slice(0, 2).join('')}</span><div><div className="max-w-[120px] truncate font-medium text-slate-800">{responsible}</div><div className="text-[9px] text-slate-400">Selección</div></div></div></td>

@@ -399,6 +399,41 @@ describe('Transición relacional PostgreSQL 17',()=>{
    expect((await call('/api/session','GET',undefined,trainer)).data.globalAdmin).toBe(false);
   }finally{env.ORG_ENABLED=undefined;}
  });
+ it('gestión unificada: empresa por registro, lectura conjunta y permisos conservados',async()=>{
+  env.ORG_ENABLED='true';
+  try{
+   const session=await call('/api/session?unified=1');expect(session.status).toBe(200);expect(session.data.unified).toBe(true);
+   const payload={code:'CI-UNIFIED',title:'Unified',vacancies:2,status:'EN_PROCESO',responsibles:[{userId:admin,target:2}],sources:[],company:'CI',area:'Ventas'};
+   expect((await call('/api/campaigns?unified=1','POST',payload)).status).toBe(400);
+   const records=[];
+   for(const companyId of ['talent-up','techcenter']){
+    const created=await call('/api/campaigns?unified=1','POST',{...payload,companyId,companyCampaignId:companyId+':bitel-portabilidad'});expect(created.status).toBe(201);records.push(created.data);
+    expect((await call('/api/campaigns/'+created.data.id+'?unified=1','PATCH',{title:'Unified edited'})).status).toBe(200);
+    expect((await call('/api/campaigns/'+created.data.id+'?unified=1','PATCH',{companyId:'other',title:'Wrong'})).status).toBe(403);
+   }
+   const bootstrap=await call('/api/bootstrap?unified=1');expect(bootstrap.status).toBe(200);
+   for(const record of records)expect(bootstrap.data.campaigns.find((c:any)=>c.id===record.id)).toMatchObject({title:'Unified edited',companyId:record.companyId});
+   expect((await call('/api/campaigns/'+records[0].id+'?unified=1','PATCH',{title:'Forbidden'},trainer)).status).toBe(403);
+   expect((await call('/api/campaigns?unified=1','POST',{...payload,companyId:'techcenter',companyCampaignId:'techcenter:bitel-portabilidad'},trainer)).status).toBe(403);
+   const link=await call('/api/capture/links?unified=1','POST',{companyId:'techcenter',companyCampaignId:'techcenter:bitel-portabilidad',source:'Facebook'});expect(link.status).toBe(201);
+   expect((await call('/api/capture/links/'+link.data.id+'?unified=1','PATCH',{active:false})).status).toBe(200);
+   expect((await call('/api/capture/links?unified=1')).data.items.find((v:any)=>v.id===link.data.id)).toMatchObject({companyId:'techcenter',active:false});
+   const own=await call('/api/bootstrap?unified=1','GET',undefined,trainer);expect(own.status).toBe(200);expect(own.data.campaigns.every((c:any)=>c.companyId==='tenant')).toBe(true);
+   const permission=(await db.query("select has_function_privilege('authenticated','public.talent_org_record_company(uuid,text,text,text)','EXECUTE') as allowed")).rows[0];expect(permission.allowed).toBe(false);
+   // Identical historical person IDs in different companies must remain distinct in the UI.
+   const people:string[]=[];
+   for(const record of records){
+    const created=await call('/api/candidates?unified=1','POST',{dni:'99980001',fullName:'CI separate identity',campaignId:record.id,recruiterId:admin,phone:'999800001',source:'Otro',applicationDate:'2026-10-16'});
+    expect(created.status).toBe(201);people.push(created.data.id);
+   }
+   expect(new Set(people).size).toBe(2);
+   expect((await call('/api/candidates/'+people[0]+'/personal-data?unified=1','PATCH',{fullName:'CI Only first'})).status).toBe(200);
+   const all=(await call('/api/bootstrap?unified=1')).data.candidates;
+   expect(all.find((c:any)=>c.id===people[0]).fullName).toBe('CI Only first');expect(all.find((c:any)=>c.id===people[1]).fullName).toBe('CI separate identity');
+   expect((await call('/api/candidates/'+people[0]+'/personal-data?unified=1','PATCH',{fullName:'CI Unauthorized'},trainer)).status).toBe(403);
+   expect((await call('/api/candidates/CAN-99980001/personal-data?unified=1','PATCH',{fullName:'Ambiguous'})).status).toBe(409);
+  }finally{env.ORG_ENABLED=undefined;}
+ });
  it('creación y edición global guarda accesos de dos empresas con rollback y CAS',async()=>{
   env.ORG_ENABLED='true';
   try {

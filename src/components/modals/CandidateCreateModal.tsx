@@ -73,7 +73,7 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
   const handleDniChange = (val: string) => {
     setDni(val);
     if (val.length >= 8) {
-      const dup = checkDuplicateCandidate(val, phone);
+      const dup = checkDuplicateCandidate(val, phone,undefined,selectedCampaign?.companyId);
       if (dup.isDuplicate) {
         setDuplicateWarning(dup.reason || 'DNI duplicado detectado');
       } else {
@@ -87,7 +87,7 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
   const handlePhoneChange = (val: string) => {
     setPhone(val);
     if (val.length >= 9) {
-      const dup = checkDuplicateCandidate(dni, val);
+      const dup = checkDuplicateCandidate(dni, val,undefined,selectedCampaign?.companyId);
       if (dup.isDuplicate) {
         setDuplicateWarning(dup.reason || 'Teléfono duplicado detectado');
       } else {
@@ -102,13 +102,13 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
     if (!firstName.trim() || !lastName.trim() || !dni.trim() || !phone.trim()) return;
 
     // Check duplicate
-    const dup = createdCandidateId ? {isDuplicate:false,reason:undefined} : checkDuplicateCandidate(dni, phone);
+    const dup = createdCandidateId ? {isDuplicate:false,reason:undefined} : checkDuplicateCandidate(dni, phone,undefined,selectedCampaign?.companyId);
     if (dup.isDuplicate) {
       setDuplicateWarning(dup.reason || 'No se puede registrar un postulante duplicado');
       return;
     }
 
-    const targetCamp = campaigns.find(c => c.id === campaignId) || campaigns[0];
+    const targetCamp = campaigns.find(c => c.id === campaignId);
     if (!targetCamp) {
       setDuplicateWarning('Selecciona una convocatoria disponible antes de registrar al postulante.');
       return;

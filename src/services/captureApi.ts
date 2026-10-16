@@ -3,14 +3,14 @@ export const captureSources = ['Facebook', 'TikTok', 'LinkedIn', 'WhatsApp', 'Re
 export const captureStates = ['Nuevo', 'Contactado', 'No responde', 'Interesado', 'No interesado'];
 export interface CaptureApplicant { fullName: string; phone: string; email: string; documentType: string; documentNumber: string; district: string; techCenterAnswers?: Record<string, string>; formSubmission?:{revision:number;title:string;questions:import('../../shared/captureFormSchema').FormQuestion[];answers:import('../../shared/captureFormSchema').FormAnswers;attachments:{id:string;name:string;size:number}[]} }
 export interface CaptureLink { id: string; source: string; ownerUid: string; companyId: string; active: boolean; createdAt: string }
-export interface CaptureEvent { id: string; candidateId: string; ownerUid: string; source: string; status: string; createdAt: string; conflict: boolean; applicant: CaptureApplicant; history: { at: string; actorUid: string; action: string; status: string; note: string }[]; possibleIds?: string[] }
+export interface CaptureEvent { companyId?:string; companyName?:string; id: string; candidateId: string; ownerUid: string; source: string; status: string; createdAt: string; conflict: boolean; applicant: CaptureApplicant; history: { at: string; actorUid: string; action: string; status: string; note: string }[]; possibleIds?: string[] }
 export interface CaptureDossier { candidate: CaptureApplicant & { id: string }; events: CaptureEvent[] }
 export interface CaptureManagement { owners: { uid: string; name: string; companyId: string; role: string; active: boolean }[]; links: CaptureLink[]; events: CaptureEvent[]; generatedAt: string }
 export const captureApi = {
   management: () => workerApi<CaptureManagement>('/api/capture/management'),
   links: () => workerApi<{ items: CaptureLink[]; truncated: boolean }>('/api/capture/links'),
   inbox: () => workerApi<{ items: CaptureEvent[]; truncated: boolean }>('/api/capture/inbox'),
-  create: (source: string,companyCampaignId?:string) => workerApi('/api/capture/links', { method: 'POST', body: JSON.stringify({ source,companyCampaignId }) }),
+  create: (source: string,companyCampaignId?:string,companyId?:string) => workerApi('/api/capture/links', { method: 'POST', body: JSON.stringify({ source,companyCampaignId,companyId }) }),
   toggle: (id: string, active: boolean) => workerApi(`/api/capture/links/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) }),
   manage: (id: string, status: string, note: string) => workerApi(`/api/capture/events/${id}`, { method: 'PATCH', body: JSON.stringify({ status, note }) }),
   dossier: (id: string) => workerApi<CaptureDossier>(`/api/capture/candidates/${encodeURIComponent(id)}`),
