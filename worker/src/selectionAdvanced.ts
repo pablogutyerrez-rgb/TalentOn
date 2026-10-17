@@ -57,7 +57,7 @@ export function checkProcessStage(candidate: Data, target: string, actor: Actor)
   const config = candidate.selectionProcessSnapshot; if (!config) return;
   assert(actor.role === 'ADMIN' || ['JEFE_SELECCION', 'ANALISTA_SELECCION'].includes(actor.role) || config.responsibleIds.includes(actor.uid), 'FORBIDDEN', 403);
   const requirement = config.stages?.find((e: Data) => e.stage === target)?.requirements;
-  if (requirement && !['DESCARTADO', 'NO_APTO'].includes(target)) assert(candidate.selection?.processChecks?.[target]?.confirmed === true, 'PROCESS_REQUIREMENTS_INCOMPLETE', 409);
+  if (requirement && !['DESCARTADO', 'NO_APTO', 'APTO_CAPACITACION'].includes(target)) assert(candidate.selection?.processChecks?.[target]?.confirmed === true, 'PROCESS_REQUIREMENTS_INCOMPLETE', 409);
 }
 async function applicationId(candidateId: string, campaignId: string) { return 'SEL-' + [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${candidateId}:${campaignId}`)))].map(b => b.toString(16).padStart(2, '0')).join(''); }
 const action = (actor: Actor, name: string, detail: string) => ({ id: crypto.randomUUID(), at: new Date().toISOString(), actorUid: actor.uid, actorName: actor.displayName || actor.uid, action: name, detail });

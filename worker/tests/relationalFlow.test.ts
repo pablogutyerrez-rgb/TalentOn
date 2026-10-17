@@ -465,4 +465,21 @@ describe('Transición relacional PostgreSQL 17',()=>{
    expect((await call('/api/users/'+crossUser.id+'/access','PATCH',{displayName:'Edited from Talent-On',role:'RECLUTADOR',status:'ACTIVO',module:['SELECCION']})).status).toBe(200);
   } finally {env.ORG_ENABLED=undefined;}
  });
+ it('permite pasar directamente a Apto con datos básicos completos y documentos pendientes',async()=>{
+  const created=await call('/api/candidates','POST',{dni:'99900009',fullName:'CI Apto directo',campaignId,recruiterId:admin,source:'Otro'});
+  expect(created.status).toBe(201);
+  const id=created.data.id;
+  const incomplete=await call('/api/candidates/'+id+'/stage','POST',{stage:'APTO_CAPACITACION'});
+  expect(incomplete.status).toBe(409);
+  expect(incomplete.data.message).toContain('celular');
+  expect((await call('/api/candidates/'+id+'/personal-data','PATCH',{phone:'999000009'})).status).toBe(200);
+  expect((await call('/api/candidates/'+id+'/stage','POST',{stage:'APTO_CAPACITACION'})).status).toBe(200);
+  const candidate=(await call('/api/bootstrap')).data.candidates.find((item:any)=>item.id===id);
+  expect(candidate.selection.stage).toBe('APTO_CAPACITACION');
+  expect(candidate.documents).toHaveLength(0);
+  const rejected=await call('/api/candidates','POST',{dni:'99900010',fullName:'CI Descartado',phone:'999000010',campaignId,recruiterId:admin,source:'Otro'});
+  expect(rejected.status).toBe(201);
+  expect((await call('/api/candidates/'+rejected.data.id+'/stage','POST',{stage:'NO_APTO'})).status).toBe(200);
+  expect((await call('/api/candidates/'+rejected.data.id+'/stage','POST',{stage:'APTO_CAPACITACION'})).status).toBe(400);
+ });
 });

@@ -268,7 +268,7 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
               <div className="mr-1 flex h-11 shrink-0 items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3">
                 <FileText className="h-4 w-4 shrink-0 text-slate-500" />
                 <div className="w-24">
-                  <span className="block whitespace-nowrap text-2xs font-medium leading-none text-slate-500">Expediente</span>
+                  <span className="block whitespace-nowrap text-2xs font-medium leading-none text-slate-500">Docs. para alta</span>
                   <div className="mt-1 h-1 overflow-hidden rounded-full bg-slate-200">
                     <div className={`h-full rounded-full ${expedient.percentage === 100 ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${expedient.percentage}%` }} />
                   </div>
@@ -301,6 +301,7 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
                   <button
                     type="button"
                     onClick={() => void markCandidateAptoCapacitacion(candidate.id).catch(error=>alert(getWorkerErrorMessage(error)))}
+                    title="Requiere nombres, documento, celular y convocatoria. Los documentos se completan antes del alta."
                     className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />

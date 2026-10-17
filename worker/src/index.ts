@@ -6,7 +6,7 @@ import { relationalIdentity } from './supabaseIdentity';
 import { organizationRequest,organizationUserGuard,organizationUserHome } from './organization';
 import { unifiedRequest } from './unified';
 import { SupabaseError, type SupabaseEnv } from './supabase';
-import { handleSelectionAdvanced, checkProcessApproval, checkProcessStage } from './selectionAdvanced';
+import { handleSelectionAdvanced, checkProcessStage } from './selectionAdvanced';
 export interface Env extends SupabaseEnv, RuntimeEnv {
   VERIFIED_SESSION?: SessionProfile;
   RELATIONAL_ACTOR?: SessionProfile;
@@ -305,11 +305,16 @@ async function candidateStage(request: Request, env: Env, actor: Profile, id: st
   checkProcessStage(current, input.stage, actor);
   const selection = isRecord(current.selection) ? current.selection : {}; const previousStage = typeof selection.stage === 'string' ? selection.stage : 'NUEVO'; const discarded = input.stage === 'NO_APTO' || input.stage === 'DESCARTADO'; const history = Array.isArray(selection.traceability) ? selection.traceability : [];
   if (current.selectionActive === false) throw new CaptureError('Esta participación está cerrada. Vincula otra convocatoria manualmente.', 409);
-  if (!selectionTransitions[previousStage]?.includes(input.stage)) throw new Error('INVALID_STAGE_TRANSITION');
+  const directApto = input.stage === 'APTO_CAPACITACION' && selection.status !== 'NO_APTO' && current.currentStage !== 'DESCARTADO' && !['NO_APTO', 'DESCARTADO', 'APTO_CAPACITACION'].includes(previousStage);
+  if (!directApto && !selectionTransitions[previousStage]?.includes(input.stage)) throw new Error('INVALID_STAGE_TRANSITION');
   if (input.stage === 'APTO_CAPACITACION') {
-    checkProcessApproval(current);
-    const interview = isRecord(selection.interviewResult) ? selection.interviewResult : {}; const technical = isRecord(selection.technicalVerification) ? selection.technicalVerification : {}; const evaluations = Array.isArray(selection.evaluationsList) ? selection.evaluationsList : [];
-    if (interview.status !== 'APTO' || technical.status === 'NO_APRUEBA' || !technical.status || evaluations.length === 0 || evaluations.some(item => !isRecord(item) || !['APTO', 'APROBADO'].includes(String(item.result)))) throw new Error('SELECTION_REQUIREMENTS_INCOMPLETE');
+    const missing = [
+      !String(current.fullName ?? '').trim() && 'nombres y apellidos',
+      !String(current.dni ?? '').trim() && 'documento de identidad',
+      !String(current.phone ?? '').trim() && 'celular',
+      !String(current.campaignId ?? '').trim() && 'convocatoria',
+    ].filter((field): field is string => typeof field === 'string');
+    if (missing.length) throw new CaptureError(`Completa los datos del postulante: ${missing.join(', ')}.`, 409);
   }
   const now = new Date().toISOString(); const trace = { id: `TR-${crypto.randomUUID()}`, date: now.slice(0, 10), time: now.slice(11, 16), user: actor.displayName, previousStage, newStage: input.stage, observation: typeof input.observation === 'string' ? input.observation : `Cambio de etapa a ${input.stage}` };
   const next = { ...selection, stage: input.stage, status: discarded ? 'NO_APTO' : 'ACTIVO', discardReason: discarded && typeof input.discardReason === 'string' ? input.discardReason : selection.discardReason, traceability: [...history, trace] };
