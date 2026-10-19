@@ -187,6 +187,7 @@ function campaignAllowed(profile: Profile, campaignData: Record<string, unknown>
   if (profile.role === 'ADMIN') return true;
   if (campaignData.companyId !== profile.companyId) return false;
   if (profile.role === 'JEFE_SELECCION') return true;
+  if (profile.role === 'RECLUTADOR') return Array.isArray(campaignData.assignedUserIds) && campaignData.assignedUserIds.includes(profile.uid);
   if (profile.role !== 'ANALISTA_SELECCION') return false;
   const analystId = typeof campaignData.assignedAnalystId === 'string' ? campaignData.assignedAnalystId : '';
   return analystId === profile.uid || profile.scope.includes(String(campaignData.id ?? ''));

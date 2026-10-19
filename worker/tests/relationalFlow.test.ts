@@ -368,6 +368,27 @@ describe('Transición relacional PostgreSQL 17',()=>{
    }
   }finally{env.ORG_ENABLED=undefined;}
  });
+ it('reclutador recibe solo convocatorias asignadas en su empresa',async()=>{
+  env.ORG_ENABLED='true';
+  try{
+   const uid=crypto.randomUUID(),company='techcenter',catalog='techcenter:bitel-portabilidad';
+   await db.query('insert into auth.users(id) values ($1)',[uid]);
+   await db.query("insert into talent.profiles(company_id,id,auth_user_id,username,display_name,role,status) values ('tenant',$1::text,$1::uuid,$2,'CI recruiter scope','RECLUTADOR','ACTIVO')",[uid,'ci.recruiter.scope']);
+   authUsers.set(uid,{id:uid});
+   await db.query('select public.talent_org_member_save($1,$2,$3,$4,true,false,$5,null)',[admin,uid,company,'RECLUTADOR','{'+catalog+'}']);
+   const payload={code:'CI-SCOPE-'+uid.slice(0,8),title:'CI scope test',vacancies:2,status:'EN_PROCESO',companyCampaignId:catalog};
+   const assigned=await call('/api/campaigns','POST',payload,admin,company);
+   const unrelated=await call('/api/campaigns','POST',{...payload,code:payload.code+'-OTHER'},admin,company);
+   expect(assigned.status).toBe(201);expect(unrelated.status).toBe(201);
+   expect((await call('/api/campaigns/'+assigned.data.id+'/responsibles','POST',{responsibles:[{userId:uid,target:1}]},admin,company)).status).toBe(200);
+   const scoped=await call('/api/bootstrap','GET',undefined,uid,company);
+   expect(scoped.status).toBe(200);
+   expect(scoped.data.campaigns.map((item:any)=>item.id)).toEqual([assigned.data.id]);
+   const unified=await call('/api/bootstrap?unified=1','GET',undefined,uid);
+   expect(unified.status).toBe(200);
+   expect(unified.data.campaigns.map((item:any)=>item.id)).toEqual([assigned.data.id]);
+  }finally{env.ORG_ENABLED=undefined;}
+ });
  it('repara administrador multiempresa: Talent-On, creación, edición y permisos sin elevar otros roles',async()=>{
   env.ORG_ENABLED='true';
   try{
