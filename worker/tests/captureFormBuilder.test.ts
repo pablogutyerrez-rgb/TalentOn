@@ -1,21 +1,24 @@
 import {describe,it,expect} from 'vitest';
-import {defaultCaptureForm,validateCaptureForm,validateFormAnswers,effectiveQuestions,visibleQuestions,type FormQuestion} from '../../shared/captureFormSchema';
+import {defaultCaptureForm,validateCaptureForm,validateFormAnswers,effectiveQuestions,visibleQuestions,sensitiveQuestionIds,type FormQuestion} from '../../shared/captureFormSchema';
 import {verifyCaptureFile,readCaptureSubmission} from '../src/captureAttachments';
 const configuration={minAge:18,maxAge:60,workdays:['Full time'],schedules:['09:00–18:00'],modality:'Presencial' as const};
 const custom=(type:FormQuestion['type'],extra:Partial<FormQuestion>={}):FormQuestion=>({id:'custom',label:'Pregunta',section:'Extra',type,required:true,...extra});
 describe('Editor de formularios',()=>{
- it('la plantilla conserva 22 preguntas, condiciones y campos del sistema',()=>{
+ it('la plantilla conserva el orden solicitado, condiciones y campos del sistema',()=>{
   const f=validateCaptureForm(defaultCaptureForm());
-  expect(f.questions.filter(q=>/^\d+\./.test(q.label))).toHaveLength(22);
+  expect(f.questions).toHaveLength(27);
+  expect(f.questions.map(q=>q.id)).toEqual(['documentType','documentNumber','age','fullName','contactCenterExperience','experienceDetails','reentry','birthDate','district','addressReference','phone','email','pregnancy','children','disability','disabilityDetails','conadis','education','preferredCampaign','workday','availability','contractType','workOrStudy','modality','computer','usbHeadset','internet']);
   const q=effectiveQuestions(f,configuration,{id:'campaign',name:'Campaña'},'Konectados');
-  expect(q.find(q=>q.id==='workedAtTechCenter')?.label).toContain('Konectados');
+  expect(q.find(q=>q.id==='preferredCampaign')?.options).toEqual([{value:'campaign',label:'Campaña'}]);
   expect(q.find(q=>q.id==='age')).toMatchObject({min:18,max:60});
-  expect(q.find(q=>q.id==='workday')?.options).toEqual([{value:'Full time',label:'Full time'}]);
+  expect(q.find(q=>q.id==='workday')?.options).toEqual([{value:'Full time',label:'FULL TIME'}]);
   expect(visibleQuestions(q,{modality:'Presencial'}).some(q=>q.id==='computer')).toBe(false);
+  expect(visibleQuestions(q,{contactCenterExperience:'No',disability:'No'}).some(q=>q.id==='disabilityDetails')).toBe(false);
+  expect(sensitiveQuestionIds.every(id=>f.questions.find(q=>q.id===id)?.required===false)).toBe(true);
  });
  it('no permite borrar identidad, duplicar IDs, ciclos, condiciones inválidas ni CONADIS obligatorio',()=>{
   const f=defaultCaptureForm();
-  for(const questions of [f.questions.filter(q=>q.id!=='documentNumber'),[...f.questions,f.questions[0]],f.questions.map(q=>q.id==='fullName'?{...q,required:false}:q),f.questions.map(q=>q.id==='conadis'?{...q,required:true}:q),[...f.questions,custom('short',{condition:{field:'custom',operator:'equals',value:'Sí'}})],f.questions.map(q=>q.id==='computer'?{...q,condition:undefined}:q)])
+  for(const questions of [f.questions.filter(q=>q.id!=='documentNumber'),[...f.questions,f.questions[0]],f.questions.map(q=>q.id==='fullName'?{...q,required:false}:q),f.questions.map(q=>q.id==='conadis'?{...q,required:true}:q),f.questions.map(q=>q.id==='pregnancy'?{...q,required:true}:q),[...f.questions,custom('short',{condition:{field:'custom',operator:'equals',value:'Sí'}})],f.questions.map(q=>q.id==='computer'?{...q,condition:undefined}:q)])
    expect(()=>validateCaptureForm({...f,questions})).toThrow();
  });
  it('tipos corto, largo, número, email, fecha y teléfono',()=>{

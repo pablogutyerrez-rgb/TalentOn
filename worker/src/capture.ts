@@ -1,6 +1,6 @@
 import type { Env } from './index';
 import { TECH_CENTER_FORM, COMPANY_CAPTURE_FORM, validateTechCenterAnswers, type CaptureCampaignOption } from '../../shared/techCenterForm';
-import {effectiveQuestions,validateFormAnswers,validateCaptureForm,visibleQuestions,type FormAnswers} from '../../shared/captureFormSchema';
+import {effectiveQuestions,validateFormAnswers,validateCaptureForm,visibleQuestions,sensitiveQuestionIds,type FormAnswers} from '../../shared/captureFormSchema';
 import {captureConfig} from '../../shared/captureCampaignConfig';
 import {readCaptureSubmission,verifyCaptureFile,type CaptureFile} from './captureAttachments';
 
@@ -156,6 +156,8 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
           verifiedFiles.set(id,await verifyCaptureFile(file));
         }
         validatedAnswers=validateFormAnswers(questions,input,new Set(verifiedFiles.keys()));
+        if(sensitiveQuestionIds.some(id=>Boolean(validatedAnswers?.[id]))&&input.sensitiveConsent!==true)
+          throw new CaptureError('Autoriza expresamente el tratamiento de las respuestas sensibles o déjalas sin responder.');
         formSubmission={revision:chosen.formRevision,title:definition.title,questions:visible,answers:validatedAnswers,attachments:[]};
       }catch(e){throw new CaptureError(e instanceof Error?e.message:'Revisa el formulario.');}
     }else if(files.size)throw new CaptureError('Este formulario no permite adjuntos.');
@@ -202,9 +204,11 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
           formSubmission.attachments.push({id,name:file.name.replace(/[\x00-\x1f\x7f]/g,'').slice(0,160),mimeType:file.type,size:file.size,sha256,objectKey});
         }
       }
-      const privacy = techCenter
+      const privacy:Data = techCenter
         ? { privacyAcknowledgement: { acknowledged: true, version: formVersion, acknowledgedAt: now } }
         : { consent: { accepted: true, version: 'capture-v1', acceptedAt: now } };
+      if(formSubmission&&sensitiveQuestionIds.some(id=>Boolean(validatedAnswers?.[id])))
+        privacy.sensitiveDisclosureConsent={accepted:true,version:'capture-sensitive-v1',acceptedAt:now};
       const event = { id: eventId, candidateId, linkId: pub[1], companyId: link.companyId, ownerUid: link.ownerUid, source: link.source, createdAt: now, status: 'Nuevo', applicant, conflict, possibleIds: matched.possibleIds, ...privacy, history: [{ at: now, actorUid: 'PUBLIC', action: 'Registro', status: 'Nuevo', note: '' }] };
       const writes: { path: string; data: Data; create?: boolean }[] = [
         { path: `captations/${eventId}`, data: event, create: true },

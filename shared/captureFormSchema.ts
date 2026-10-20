@@ -13,6 +13,7 @@ export type FormQuestion = {
 export type CaptureForm = {title:string; description:string; questions:FormQuestion[]};
 export type CaptureFormBundle = {configuration:CaptureCampaignConfig; form:CaptureForm};
 export const protectedQuestions = ['documentType','documentNumber','fullName','age','district','phone','email','preferredCampaign','workday','availability','modality'];
+export const sensitiveQuestionIds = ['pregnancy','children','disability','disabilityDetails','conadis'] as const;
 const conditionMap:Record<string,FormQuestion['condition']>={
   experienceMonths:{field:'contactCenterExperience',value:'Sí',operator:'equals'},
   experienceDetails:{field:'contactCenterExperience',value:'Sí',operator:'equals'},
@@ -21,16 +22,50 @@ const conditionMap:Record<string,FormQuestion['condition']>={
   usbHeadset:{field:'modality',value:'Remota',operator:'equals'},
   internet:{field:'modality',value:'Remota',operator:'equals'},
   adjustmentDetails:{field:'adjustments',value:'Sí',operator:'equals'},
+  disabilityDetails:{field:'disability',value:'Sí',operator:'equals'},
 };
 export function defaultCaptureForm():CaptureForm {
+  const original=techCenterSections.flatMap(s=>s.fields.map(f=>({
+    id:f.key,label:f.label,section:s.title,type:(f.options?'select':f.type==='textarea'?'long':f.type||'short') as QuestionType,
+    required:!!f.required,...(f.hint?{hint:f.hint}:{}),
+    ...(f.options?{options:f.options.map(o=>({value:optionValue(o),label:optionLabel(o)}))}:{}),
+    ...(f.max?{maxLength:f.max}:{}),...(f.minValue!==undefined?{min:f.minValue}:{}),...(f.maxValue!==undefined?{max:f.maxValue}:{}),
+    ...(conditionMap[f.key]?{condition:conditionMap[f.key]}:{})
+  })));
+  const existing=(id:string,patch:Partial<FormQuestion>={}):FormQuestion=>({...original.find(q=>q.id===id)!,...patch});
+  const extra=(id:string,label:string,section:string,type:QuestionType,required=false,options?:string[]):FormQuestion=>({id,label,section,type,required,...(options?{options:options.map(value=>({value,label:value}))}:{})});
+  const personal='1. DATOS PERSONALES', experience='2. EXPERIENCIA LABORAL', availability='3. POSTULACIÓN Y DISPONIBILIDAD', inclusion='5. INCLUSIÓN Y ACCESIBILIDAD';
+  const questions:FormQuestion[]=[
+    existing('documentType',{label:'TIPO DE DOCUMENTO'}),
+    existing('documentNumber',{label:'NÚMERO DE DOCUMENTO DE IDENTIDAD'}),
+    existing('age',{label:'INDICA TU EDAD'}),
+    existing('fullName',{label:'NOMBRES Y APELLIDOS COMPLETOS ( EN MAYÚSCULA )'}),
+    existing('contactCenterExperience',{label:'CUENTAS CON EXPERIENCIA EN CALL CENTER',type:'single'}),
+    existing('experienceDetails',{label:'EN CASO CUENTES CON EXPERIENCIA, INDICANOS CUÁNTO TIEMPO Y PARA QUÉ CAMPAÑAS LABORASTE',type:'short',maxLength:240}),
+    extra('reentry','ERES REINGRESO',experience,'single',true,['Sí','No']),
+    extra('birthDate','FECHA DE NACIMIENTO',personal,'date',true),
+    existing('district',{label:'PROVINCIA / DISTRITO'}),
+    existing('addressReference',{label:'DIRECCIÓN DE DOMICILIO',required:true}),
+    existing('phone',{label:'TU NÚMERO DE CELULAR / WHATSAPP'}),
+    existing('email',{label:'CORREO ELECTRONICO'}),
+    extra('pregnancy','¿TE ENCUENTRAS EN ESTADO DE GESTACIÓN?',inclusion,'short'),
+    extra('children','¿TIENES HIJOS ? SI ES ASÍ, ¿QUE EDAD TIENEN?',inclusion,'short'),
+    extra('disability','¿CUENTAS CON ALGUNA DISCAPACIDAD O ENFERMEDAD?',inclusion,'single',false,['Sí','No']),
+    {...extra('disabilityDetails','SI PRESENTAS ALGUNA DISCAPACIDAD, O ENFERMEDAD DETALLANOS CUÁL ES',inclusion,'short'),condition:conditionMap.disabilityDetails},
+    existing('conadis',{label:'¿CUENTAS CON CARNET DE CONADIS?',type:'single'}),
+    existing('education',{label:'GRADO DE INSTRUCCIÓN',type:'single',options:['Secundaria incompleta','Secundaria completa','Técnico en curso','Técnico completo','Universitario en curso','Bachiller','Titulado(a)'].map(value=>({value,label:value}))}),
+    existing('preferredCampaign',{label:'SERVICIO',type:'single'}),
+    existing('workday',{label:'DISPONIBILIDAD DE HORARIO',type:'single'}),
+    existing('availability',{label:'HORARIO DE TRABAJO'}),
+    extra('contractType','TIPO DE CONTRTO',availability,'single',true,['PLANILLA MICRO']),
+    extra('workOrStudy','¿TE ENCUENTRAS TRABAJANDO O ESTUDIANDO? DE SER EL CASO, INDICANOS EL HORARIO',availability,'short',true),
+    existing('modality',{label:'MODALIDAD DE TRABAJO',type:'single'}),
+    existing('computer',{label:'¿CUENTAS CON PC O LAPTOP?',type:'short',options:undefined}),
+    existing('usbHeadset',{label:'¿CUENTAS CON AURICULARES CON ENTRADA USB?',type:'short',options:undefined}),
+    existing('internet',{label:'¿CUENTAS CON CONEXIÓN A INTERNET YA SEA INALAMBRICO O POR CABLE?',type:'short',options:undefined}),
+  ];
   return {title:'Formulario de registro de postulantes',description:'Responde con información verídica. Los campos obligatorios están identificados con (*).',
-    questions:techCenterSections.flatMap(s=>s.fields.map(f=>({
-      id:f.key,label:f.label,section:s.title,type:(f.options?'select':f.type==='textarea'?'long':f.type||'short') as QuestionType,
-      required:!!f.required,...(f.hint?{hint:f.hint}:{}),
-      ...(f.options?{options:f.options.map(o=>({value:optionValue(o),label:optionLabel(o)}))}:{}),
-      ...(f.max?{maxLength:f.max}:{}),...(f.minValue!==undefined?{min:f.minValue}:{}),...(f.maxValue!==undefined?{max:f.maxValue}:{}),
-      ...(conditionMap[f.key]?{condition:conditionMap[f.key]}:{})
-    })))};
+    questions:questions.map(q=>({...q,section:'Datos del postulante'}))};
 }
 const str=(x:unknown,max:number,required=true):string=>{
   if(typeof x!=='string'||x.length>max||required&&!x.trim())throw new Error('Revisa los textos del formulario.');
@@ -88,6 +123,12 @@ export function validateCaptureForm(raw:unknown):CaptureForm {
   }
   const conadis=questions.find(q=>q.id==='conadis');
   if(conadis&&(conadis.required||!['select','single'].includes(conadis.type)||JSON.stringify(conadis.options?.map(o=>o.value))!==JSON.stringify(['Sí','No'])))throw new Error('CONADIS debe ser voluntario y tener respuestas Sí/No.');
+  for(const id of sensitiveQuestionIds){
+    const q=questions.find(q=>q.id===id);
+    if(q?.required)throw new Error('Las preguntas sensibles deben ser voluntarias: '+id);
+  }
+  const details=questions.find(q=>q.id==='disabilityDetails');
+  if(details&&JSON.stringify(details.condition)!==JSON.stringify(conditionMap.disabilityDetails))throw new Error('El detalle de salud solo debe mostrarse tras una respuesta afirmativa.');
   if(questions.filter(q=>q.type==='file').length>3)throw new Error('Máximo 3 preguntas de adjuntos por formulario.');
   return {title:str(v.title,160),description:str(v.description??'',2000,false),questions};
 }
@@ -100,7 +141,7 @@ export function effectiveQuestions(form:CaptureForm,config:CaptureCampaignConfig
     const out={...q,label:companyText(q.label,companyName)};
     if(q.id==='age'){out.min=config.minAge;out.max=config.maxAge??120;out.hint=config.maxAge==null?'Edad mínima: '+config.minAge+' años.':'Rango permitido: '+config.minAge+'–'+config.maxAge+' años.';}
     const options=q.id==='workday'?config.workdays:q.id==='availability'?config.schedules:q.id==='modality'?[config.modality]:undefined;
-    if(options)out.options=options.map(v=>({value:v,label:v}));
+    if(options)out.options=options.map(v=>({value:v,label:['workday','modality'].includes(q.id)?v.toUpperCase():v}));
     if(q.id==='preferredCampaign')out.options=[{value:campaign.id,label:campaign.name}];
     return out;
   });

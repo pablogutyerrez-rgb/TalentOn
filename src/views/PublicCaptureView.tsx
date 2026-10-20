@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { publicCaptureApi } from '../services/captureApi';
 import { TechCenterFields } from '../components/capture/TechCenterFields';
 import {CaptureFormFields} from '../components/capture/CaptureFormFields';
-import {effectiveQuestions,visibleQuestions,type FormAnswers} from '../../shared/captureFormSchema';
+import {effectiveQuestions,visibleQuestions,sensitiveQuestionIds,type FormAnswers} from '../../shared/captureFormSchema';
 import { COMPANY_CAPTURE_FORM, companyText, selectedCaptureConfig, type CaptureCampaignOption, techCenterIntro, techCenterPrivacy, techCenterPrivacyNote } from '../../shared/techCenterForm';
 type Turnstile = { render: (el: HTMLElement, options: object) => string; remove: (id: string) => void; reset: (id: string) => void };
 export function PublicCaptureView({ token }: { token: string }) {
@@ -12,6 +12,7 @@ export function PublicCaptureView({ token }: { token: string }) {
   const [sitekey, setSitekey] = useState('');
   const [formId, setFormId] = useState('');
   const [techAnswers, setTechAnswers] = useState<FormAnswers>({});
+  const [sensitiveConsent,setSensitiveConsent]=useState(false);
   const [files,setFiles]=useState<Record<string,File>>({});
   const [companyName, setCompanyName] = useState('');
   const [campaigns, setCampaigns] = useState<CaptureCampaignOption[]>([]);
@@ -19,15 +20,16 @@ export function PublicCaptureView({ token }: { token: string }) {
   const selectedCampaign=campaigns.find(c=>c.id===techAnswers.preferredCampaign);
   const customForm=selectedCampaign?.form;
   const questions=customForm&&selectedConfig&&selectedCampaign?effectiveQuestions(customForm,selectedConfig,selectedCampaign,companyName):undefined;
+  const sensitiveAnswered=!!questions&&visibleQuestions(questions,techAnswers).some(q=>sensitiveQuestionIds.includes(q.id as typeof sensitiveQuestionIds[number])&&Boolean(techAnswers[q.id]));
   const changeAnswer=(key:string,value:string|string[])=>{
     if(key==='preferredCampaign'){
-      setFiles({});setTechAnswers({preferredCampaign:String(value),modality:campaigns.find(c=>c.id===value)?.configuration?.modality||''});
+      setFiles({});setSensitiveConsent(false);setTechAnswers({preferredCampaign:String(value),modality:campaigns.find(c=>c.id===value)?.configuration?.modality||''});
     }else setTechAnswers(previous=>({...previous,[key]:value}));
   };
   useEffect(() => {
     let cancelled = false;
     setActive(false); setChallenge(''); setError(''); setSuccess(false); setSitekey('');
-    setFormId(''); setCompanyName(''); setCampaigns([]); setTechAnswers({}); setData({ fullName: '', phone: '', email: '', documentType: 'DNI', documentNumber: '', district: '', consent: false, website: '' });
+    setFormId(''); setCompanyName(''); setCampaigns([]); setTechAnswers({}); setSensitiveConsent(false); setData({ fullName: '', phone: '', email: '', documentType: 'DNI', documentNumber: '', district: '', consent: false, website: '' });
     requestId.current = crypto.randomUUID();
     publicCaptureApi<{ turnstileSiteKey?: string; securityReady?: boolean; formId?: string; companyName?:string; campaigns?:CaptureCampaignOption[] }>(token).then(config => {
       if (cancelled) return;
@@ -76,7 +78,7 @@ export function PublicCaptureView({ token }: { token: string }) {
       e.preventDefault(); if(busy||!challenge||!selectedConfig)return;setBusy(true);setError('');
       try{
         const fileIds=new Set(questions?visibleQuestions(questions,techAnswers).filter(q=>q.type==='file').map(q=>q.id):[]);
-        await publicCaptureApi(token,{...techAnswers,...(customForm?{formRevision:selectedCampaign?.formRevision}:{}),privacyAcknowledged:data.consent,website:data.website,turnstileToken:challenge,requestId:requestId.current},Object.fromEntries(Object.entries(files as Record<string,File>).filter(([id])=>fileIds.has(id))));
+        await publicCaptureApi(token,{...techAnswers,...(customForm?{formRevision:selectedCampaign?.formRevision}:{}),privacyAcknowledged:data.consent,sensitiveConsent:sensitiveAnswered&&sensitiveConsent,website:data.website,turnstileToken:challenge,requestId:requestId.current},Object.fromEntries(Object.entries(files as Record<string,File>).filter(([id])=>fileIds.has(id))));
         setSuccess(true);setFiles({});
       }catch(e){setError(e instanceof Error?e.message:'No se pudo enviar.');const api=(window as unknown as {turnstile?:Turnstile}).turnstile;if(widgetId.current)api?.reset(widgetId.current);setChallenge('');}
       finally{setBusy(false);}
@@ -94,6 +96,7 @@ export function PublicCaptureView({ token }: { token: string }) {
       <aside className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600"><b>Aviso de privacidad</b><p className="mt-2">{companyText(techCenterPrivacy,companyName)}</p></aside>
       <p className="text-sm font-semibold">Declaración de conocimiento (*)</p>
       <label className="flex items-start gap-2 text-sm"><input type="checkbox" required checked={data.consent} onChange={e => setData({ ...data, consent: e.target.checked })} />He leído la información sobre el tratamiento de mis datos personales.</label>
+      {sensitiveAnswered&&<label className="flex items-start gap-2 text-sm"><input type="checkbox" required checked={sensitiveConsent} onChange={e=>setSensitiveConsent(e.target.checked)}/>Autorizo de forma expresa y voluntaria el tratamiento de las respuestas sobre salud y situación familiar que decidí proporcionar para esta postulación.</label>}
       <p className="text-xs italic text-slate-500">{techCenterPrivacyNote}</p>
     </section>
     <div ref={widget} /><button disabled={busy || !challenge || !selectedConfig} className="w-full rounded-lg bg-sky-700 px-4 py-3 font-semibold text-white disabled:opacity-50">{busy ? 'Registrando…' : 'Enviar postulación'}</button>
