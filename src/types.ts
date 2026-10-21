@@ -9,14 +9,17 @@ export type UserRole =
   | 'COORDINADOR_FORMACION'
   | 'FORMADOR'
   | 'JEFE_TALENTO'
-  | 'ANALISTA_TALENTO';
+  | 'ANALISTA_TALENTO'
+  | 'JEFE_OPERACIONES'
+  | 'COORDINADOR_OPERACIONES';
 
 export type AppModuleName = 
   | 'SELECCION'
   | 'FORMACION'
   | 'TALENTO'
   | 'ANALITICA'
-  | 'ADMINISTRACION';
+  | 'ADMINISTRACION'
+  | 'OPERACIONES';
 
 export interface CompanyAccess {
   companyId: string; role: UserRole; enabled: boolean; allCampaigns: boolean; scopes: string[]; version: number | null;

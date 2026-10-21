@@ -25,7 +25,7 @@ export interface Env extends SupabaseEnv, RuntimeEnv {
   DOCUMENTS: R2Bucket;
 }
 
-type Role = 'ADMIN' | 'JEFE_SELECCION' | 'ANALISTA_SELECCION' | 'RECLUTADOR' | 'JEFE_FORMACION' | 'COORDINADOR_FORMACION' | 'FORMADOR' | 'JEFE_TALENTO' | 'ANALISTA_TALENTO';
+type Role = 'ADMIN' | 'JEFE_SELECCION' | 'ANALISTA_SELECCION' | 'RECLUTADOR' | 'JEFE_FORMACION' | 'COORDINADOR_FORMACION' | 'FORMADOR' | 'JEFE_TALENTO' | 'ANALISTA_TALENTO' | 'JEFE_OPERACIONES' | 'COORDINADOR_OPERACIONES';
 type Profile = { uid: string; username: string; displayName: string; role: Role; companyId: string; module: string[]; allowedModules: string[]; scope: string[]; subordinateUserIds?: string[]; enabled: boolean; status: string };
 type FirestoreValue = { stringValue?: string; integerValue?: string; doubleValue?: number; booleanValue?: boolean; timestampValue?: string; nullValue?: null; arrayValue?: { values?: FirestoreValue[] }; mapValue?: { fields?: Record<string, FirestoreValue> } };
 type FirestoreDocument = { name?: string; fields?: Record<string, FirestoreValue>; updateTime?: string };
@@ -832,7 +832,9 @@ async function updateSystemSettings(request: Request, env: Env, actor: Profile) 
 }
 const validUsername = (name: unknown) => typeof name === 'string' && /^[a-z0-9][a-z0-9._-]{2,31}$/.test(name);
 const modulesByRole: Record<Role, string[]> = {
-  ADMIN: ['SELECCION', 'FORMACION', 'TALENTO', 'ANALITICA', 'ADMINISTRACION'],
+  ADMIN: ['SELECCION', 'FORMACION', 'TALENTO', 'ANALITICA', 'ADMINISTRACION', 'OPERACIONES'],
+  JEFE_OPERACIONES: ['OPERACIONES'],
+  COORDINADOR_OPERACIONES: ['OPERACIONES'],
   JEFE_SELECCION: ['SELECCION', 'ANALITICA'],
   ANALISTA_SELECCION: ['SELECCION'],
   RECLUTADOR: ['SELECCION'],
@@ -930,7 +932,7 @@ async function createUser(request: Request, env: Env, actor: Profile) {
   const uid = typeof authData.localId === 'string' ? authData.localId : '';
   if (!uid) throw new Error('IDENTITY_USER_ID_MISSING');
   const selectedModules = strings(input.module);
-  const modules = selectedModules.length ? selectedModules : modulesByRole[role];
+  const modules = role === 'JEFE_OPERACIONES' || role === 'COORDINADOR_OPERACIONES' ? ['OPERACIONES'] : selectedModules.length ? selectedModules : modulesByRole[role];
   const scope = strings(input.scope);
   const nickname = profileText(input.nickname, 'El apodo', 48) ?? '';
   const tagline = profileText(input.tagline, 'La frase de perfil', 120) ?? '';
@@ -996,7 +998,7 @@ async function updateUser(request: Request, env: Env, actor: Profile, uid: strin
     if (duplicateIds.some(id => id !== uid)) throw new Error('El nombre de usuario ya está en uso.');
   }
   const selectedModules = strings(input.module);
-  const modules = selectedModules.length ? selectedModules : modulesByRole[role];
+  const modules = role === 'JEFE_OPERACIONES' || role === 'COORDINADOR_OPERACIONES' ? ['OPERACIONES'] : selectedModules.length ? selectedModules : modulesByRole[role];
   const scope = strings(input.scope);
   const displayName = typeof input.displayName === 'string' ? input.displayName : undefined;
   const nickname = profileText(input.nickname, 'El apodo', 48);
@@ -1217,6 +1219,7 @@ const worker={async fetch(request:Request,env:Env):Promise<Response>{
     if(!originAllowed(request,env))throw new Error('ORIGIN_NOT_ALLOWED');
     const token=path.match(/^\/api\/public\/capture\/([a-f0-9]{48})$/)?.[1];
     let actor=token?undefined:env.VERIFIED_SESSION||await relationalSession(request,env);
+    if(actor&&['JEFE_OPERACIONES','COORDINADOR_OPERACIONES'].includes(actor.role)&&path!=='/api/bootstrap')throw new SupabaseError(403,'FORBIDDEN');
     const adminTarget=path.match(/^\/api\/users\/([^/]+)\/(access|reset-password)$/);
     if(actor?.globalAdmin&&adminTarget&&['PATCH','POST'].includes(request.method)){
       const home=await organizationUserHome(env,actor,decodeURIComponent(adminTarget[1]));

@@ -49,6 +49,7 @@ export const Sidebar: React.FC<{ navigationOpen?: boolean; onCloseNavigation?: (
     if (mod === 'TALENTO') return ['JEFE_TALENTO', 'ANALISTA_TALENTO'].includes(currentUser.role);
     if (mod === 'ANALITICA') return ['JEFE_SELECCION', 'JEFE_FORMACION', 'JEFE_TALENTO'].includes(currentUser.role);
     if (mod === 'ADMINISTRACION') return currentUser.role === 'ADMIN';
+    if (mod === 'OPERACIONES') return ['JEFE_OPERACIONES', 'COORDINADOR_OPERACIONES'].includes(currentUser.role);
     return false;
   };
 
@@ -118,8 +119,8 @@ export const Sidebar: React.FC<{ navigationOpen?: boolean; onCloseNavigation?: (
   }
 
   // 2. MÓDULO FORMACIÓN & OJT
-  if (currentUser.role === 'ADMIN') {
-    navSections.push({ group: 'OPERACIONES', modKey: 'ADMINISTRACION', sectionKey: 'OPERACIONES', items: [{ id: 'OPERACIONES_ADMIN', label: 'Enlaces de RQ', icon: Briefcase, badge: null }] });
+  if (currentUser.role === 'ADMIN' || (hasModule('OPERACIONES') && ['JEFE_OPERACIONES','COORDINADOR_OPERACIONES'].includes(currentUser.role))) {
+    navSections.push({ group: 'OPERACIONES', modKey: 'OPERACIONES', sectionKey: 'OPERACIONES', items: [{ id: 'OPERACIONES_ADMIN', label: 'Requerimientos y enlaces', icon: Briefcase, badge: null }] });
   }
 
   if (hasModule('FORMACION')) {
@@ -245,6 +246,7 @@ export const Sidebar: React.FC<{ navigationOpen?: boolean; onCloseNavigation?: (
     TALENTO: Briefcase,
     ANALITICA: PieChart,
     ADMINISTRACION: Settings,
+    OPERACIONES: Briefcase,
   };
 
   return (

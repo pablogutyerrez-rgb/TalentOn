@@ -39,7 +39,7 @@ import { workerApi, workerDownload, workerUpload } from '../services/workerApi';
 import { normalizeAvatarUrl, sanitizeDisplayName } from '../utils/identity';
 
 const defaultModulesForRole: Record<UserProfile['role'], UserProfile['allowedModules']> = {
-  ADMIN: ['SELECCION', 'FORMACION', 'TALENTO', 'ANALITICA', 'ADMINISTRACION'], JEFE_SELECCION: ['SELECCION', 'ANALITICA'], ANALISTA_SELECCION: ['SELECCION'], RECLUTADOR: ['SELECCION'], JEFE_FORMACION: ['FORMACION', 'ANALITICA'], COORDINADOR_FORMACION: ['FORMACION'], FORMADOR: ['FORMACION'], JEFE_TALENTO: ['TALENTO', 'ANALITICA'], ANALISTA_TALENTO: ['TALENTO'],
+  ADMIN: ['SELECCION', 'FORMACION', 'TALENTO', 'ANALITICA', 'ADMINISTRACION', 'OPERACIONES'], JEFE_SELECCION: ['SELECCION', 'ANALITICA'], ANALISTA_SELECCION: ['SELECCION'], RECLUTADOR: ['SELECCION'], JEFE_FORMACION: ['FORMACION', 'ANALITICA'], COORDINADOR_FORMACION: ['FORMACION'], FORMADOR: ['FORMACION'], JEFE_TALENTO: ['TALENTO', 'ANALITICA'], ANALISTA_TALENTO: ['TALENTO'], JEFE_OPERACIONES: ['OPERACIONES'], COORDINADOR_OPERACIONES: ['OPERACIONES'],
 };
 const emptyUser: UserProfile = { id: '', email: '', name: '', role: 'RECLUTADOR', avatarUrl: '', status: 'INACTIVO', allowedModules: [], scopeCampaignIds: [], subordinateUserIds: [] };
 const normalizeUserIdentity = (user: UserProfile): UserProfile => ({
@@ -290,6 +290,7 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (activeModule === 'CONFIGURACION' || activeModule === 'ADMIN_USUARIOS') {
         return allowed.includes('ADMINISTRACION');
       }
+      if (activeModule === 'OPERACIONES_ADMIN') return allowed.includes('OPERACIONES');
       return false;
     };
 
@@ -304,6 +305,8 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setActiveModule('ANALITICA');
       } else if (allowed.includes('ADMINISTRACION')) {
         setActiveModule('ADMIN_USUARIOS');
+      } else if (allowed.includes('OPERACIONES')) {
+        setActiveModule('OPERACIONES_ADMIN');
       }
     }
   };

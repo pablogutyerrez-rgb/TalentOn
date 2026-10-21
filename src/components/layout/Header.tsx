@@ -53,6 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
   // Derive title from active module
   const getModuleMeta = (mod: ActiveNavModule) => {
     switch (mod) {
+      case 'OPERACIONES_ADMIN': return { title: 'Requerimientos y enlaces', subtitle: 'RQ por empresa', section: 'Operaciones' };
       case 'SELECCION_CAPTACION': return { title: 'Captación', subtitle: 'Enlaces y bandeja de postulantes', section: 'Selección' };
       case 'INICIO':
       case 'SELECCION_DASHBOARD':
@@ -176,7 +177,7 @@ export const Header: React.FC<HeaderProps> = ({
         
         {/* Global Instant Search */}
         <span className="hidden text-xs text-slate-500 lg:inline">Talent-On · Gestión unificada</span>
-        <div className="relative w-64 hidden sm:block">
+        {!['JEFE_OPERACIONES','COORDINADOR_OPERACIONES'].includes(currentUser.role) && <div className="relative w-64 hidden sm:block">
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
@@ -221,10 +222,10 @@ export const Header: React.FC<HeaderProps> = ({
               ))}
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Notifications */}
-        <div className="relative">
+        {!['JEFE_OPERACIONES','COORDINADOR_OPERACIONES'].includes(currentUser.role) && <div className="relative">
           <button
             onClick={() => setShowNotifications(!showNotifications)}
             className="p-2.5 text-slate-500 hover:text-sky-700 hover:bg-sky-50 border border-transparent hover:border-sky-100 rounded-xl relative transition-colors cursor-pointer"
@@ -258,7 +259,7 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             </div>
           )}
-        </div>
+        </div>}
 
       </div>
     </header>

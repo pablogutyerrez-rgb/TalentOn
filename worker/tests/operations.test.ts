@@ -6,6 +6,8 @@ import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 const admin = '80000000-0000-4000-8000-000000000001';
 const requester = '80000000-0000-4000-8000-000000000002';
 const outsider = '80000000-0000-4000-8000-000000000003';
+const operationsBoss = '80000000-0000-4000-8000-000000000004';
+const operationsCoordinator = '80000000-0000-4000-8000-000000000005';
 let db: PGlite;
 let linkId = '';
 let gerenciaId = '';
@@ -61,5 +63,30 @@ describe('RQ público de Operaciones', () => {
     await db.query('select public.talent_ops_link_revoke($1,$2)', [admin, linkId]);
     const config = await db.query<{ result: unknown }>('select public.talent_ops_public_config($1) result', [tokenHash]);
     expect(config.rows[0].result).toBeNull();
+  });
+  it('limita Jefe y Coordinador de Operaciones a su módulo y empresa', async () => {
+    await db.exec(`insert into auth.users values ('${operationsBoss}'),('${operationsCoordinator}');
+      insert into talent.profiles(company_id,id,auth_user_id,username,display_name,document_number,role,status,must_change_password) values
+      ('techcenter','ops-boss','${operationsBoss}','ops.boss','Jefe Operaciones','81000004','JEFE_OPERACIONES','ACTIVO',false),
+      ('konectados','ops-coordinator','${operationsCoordinator}','ops.coordinator','Coordinador Operaciones','81000005','COORDINADOR_OPERACIONES','ACTIVO',false);
+      insert into talent.user_modules(company_id,user_id,module) values
+      ('techcenter','ops-boss','OPERACIONES'),('konectados','ops-coordinator','OPERACIONES');`);
+    for (const actor of [operationsBoss, operationsCoordinator]) {
+      const context = await db.query<{ result: { allowedModules: string[] } }>('select public.talent_org_context($1,null) result', [actor]);
+      expect(context.rows[0].result.allowedModules).toEqual(['OPERACIONES']);
+      const view = await db.query<{ result: { companies: { id: string }[]; requests: unknown[] } }>('select public.talent_ops_admin($1) result', [actor]);
+      expect(view.rows[0].result.companies).toHaveLength(1);
+      expect(view.rows[0].result.requests).toBeDefined();
+      await expect(db.query('select public.talent_ops_selection($1)', [actor])).rejects.toThrow();
+      await expect(db.query('select public.talent_ops_request_link($1,$2,$3,$4)', [actor, '00000000-0000-4000-8000-000000000000', 'techcenter', 'rq-campaign'])).rejects.toThrow();
+    }
+    expect((await db.query<{ result: { companies: { id: string }[] } }>('select public.talent_ops_admin($1) result', [operationsBoss])).rows[0].result.companies.map(c => c.id)).toEqual(['techcenter']);
+    await expect(db.query("insert into talent_org.user_companies(company_id,auth_user_id,role,enabled) values('konectados',$1,'ANALISTA_SELECCION',true)", [operationsBoss])).rejects.toThrow('OPERATIONS_ROLE_ONLY');
+    await expect(db.query("update talent_org.user_companies set all_campaigns=true where auth_user_id=$1", [operationsBoss])).rejects.toThrow('OPERATIONS_CAMPAIGN_SCOPE_FORBIDDEN');
+    await db.query("insert into talent_org.global_admins(id,auth_user_id) values('rq-admin',$1)", [admin]);
+    await db.query("select public.talent_org_member_save($1,$2,'konectados','JEFE_OPERACIONES',true,false,array[]::text[],null)", [admin, operationsBoss]);
+    const secondContext = await db.query<{ result: { allowedModules: string[] } }>("select public.talent_org_context($1,'konectados') result", [operationsBoss]);
+    expect(secondContext.rows[0].result.allowedModules).toEqual(['OPERACIONES']);
+    await expect(db.query("select public.talent_org_member_save($1,$2,'konectados','JEFE_OPERACIONES',true,true,array[]::text[],null)", [admin, operationsCoordinator])).rejects.toThrow('OPERATIONS_CAMPAIGN_SCOPE_FORBIDDEN');
   });
 });

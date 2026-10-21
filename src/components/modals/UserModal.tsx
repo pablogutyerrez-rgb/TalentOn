@@ -103,13 +103,21 @@ const MODULE_OPTIONS: { id: AppModuleName; label: string; description: string; c
     label: '5. Administración & Permisos', 
     description: 'Creación y gestión de usuarios, asignación de roles y parámetros institucionales.',
     color: 'border-slate-300 bg-slate-100 text-slate-900'
+  },
+  {
+    id: 'OPERACIONES', label: '6. Operaciones · RQ',
+    description: 'Gerencias, enlaces y seguimiento de requerimientos.',
+    color: 'border-cyan-200 bg-cyan-50 text-cyan-900'
   }
 ];
 
 export const getDefaultModulesForRole = (role: UserRole): AppModuleName[] => {
   switch (role) {
     case 'ADMIN':
-      return ['SELECCION', 'FORMACION', 'TALENTO', 'ANALITICA', 'ADMINISTRACION'];
+      return ['SELECCION', 'FORMACION', 'TALENTO', 'ANALITICA', 'ADMINISTRACION', 'OPERACIONES'];
+    case 'JEFE_OPERACIONES':
+    case 'COORDINADOR_OPERACIONES':
+      return ['OPERACIONES'];
     case 'JEFE_SELECCION':
       return ['SELECCION', 'ANALITICA'];
     case 'ANALISTA_SELECCION':
@@ -165,7 +173,7 @@ export const UserModal: React.FC<UserModalProps> = ({
       setJobTitle(userToEdit.jobTitle || '');
       setRole(userToEdit.role || 'ANALISTA_SELECCION');
       setStatus(userToEdit.status || 'ACTIVO');
-      setAllowedModules(userToEdit.allowedModules || getDefaultModulesForRole(userToEdit.role));
+      setAllowedModules(['JEFE_OPERACIONES','COORDINADOR_OPERACIONES'].includes(userToEdit.role) ? ['OPERACIONES'] : userToEdit.allowedModules || getDefaultModulesForRole(userToEdit.role));
       setScopeCampaignIds(userToEdit.scopeCampaignIds || []);
       setSubordinateUserIds(userToEdit.subordinateUserIds || []);
       setAvatarUrl(userToEdit.avatarUrl || DEFAULT_AVATARS[0]);
@@ -196,6 +204,9 @@ export const UserModal: React.FC<UserModalProps> = ({
     setRole(newRole);
     // Auto populate default modules when role changes unless user already customized
     setAllowedModules(getDefaultModulesForRole(newRole));
+    if (newRole === 'JEFE_OPERACIONES' || newRole === 'COORDINADOR_OPERACIONES') {
+      setCompanyAccess(current => current?.map(grant => ({ ...grant, role: newRole, allCampaigns: false, scopes: [] })));
+    }
     
     // Auto suggest job title
     if (!userToEdit) {
@@ -225,11 +236,18 @@ export const UserModal: React.FC<UserModalProps> = ({
         case 'ANALISTA_TALENTO':
           setJobTitle('Especialista de Gestión de Talento');
           break;
+        case 'JEFE_OPERACIONES':
+          setJobTitle('Jefe de Operaciones');
+          break;
+        case 'COORDINADOR_OPERACIONES':
+          setJobTitle('Coordinador de Operaciones');
+          break;
       }
     }
   };
 
   const toggleModule = (modId: AppModuleName) => {
+    if (role === 'JEFE_OPERACIONES' || role === 'COORDINADOR_OPERACIONES') return;
     if (allowedModules.includes(modId)) {
       if (allowedModules.length === 1) {
         setErrorMsg('El usuario debe tener al menos un módulo habilitado.');
@@ -274,7 +292,7 @@ export const UserModal: React.FC<UserModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if(saving)return;
-    if(currentUser.globalAdmin&&(!companyAccess||!companyAccess.some(c=>c.enabled)||companyAccess.some(c=>c.enabled&&!c.allCampaigns&&!c.scopes.length))){setErrorMsg('Selecciona al menos una empresa y sus campañas. Espera a que termine la carga de permisos.');return;}
+    if(currentUser.globalAdmin&&(!companyAccess||!companyAccess.some(c=>c.enabled)||companyAccess.some(c=>c.enabled&&!['JEFE_OPERACIONES','COORDINADOR_OPERACIONES'].includes(c.role)&&!c.allCampaigns&&!c.scopes.length))){setErrorMsg('Selecciona al menos una empresa y sus campañas. Espera a que termine la carga de permisos.');return;}
     const cleanName = sanitizeDisplayName(name, '');
     if (!cleanName || !email.trim() || !/^\d{8}$/.test(dni.trim())) {
       setErrorMsg('Nombre, usuario y DNI de 8 dígitos son obligatorios.');
@@ -579,7 +597,9 @@ export const UserModal: React.FC<UserModalProps> = ({
                 { id: 'JEFE_FORMACION', name: 'Jefe de Formación', tag: 'Formación & OJT', color: 'border-indigo-300 bg-indigo-50/50' },
                 { id: 'COORDINADOR_FORMACION', name: 'Coordinador Formación', tag: 'Asignación & Cohortes', color: 'border-indigo-200' },
                 { id: 'FORMADOR', name: 'Formador / Trainer', tag: 'Mis Capacitaciones & OJT', color: 'border-purple-200' },
-                { id: 'JEFE_TALENTO', name: 'Gestión de Talento', tag: 'Contrataciones & Altas', color: 'border-emerald-200 bg-emerald-50/50' }
+                { id: 'JEFE_TALENTO', name: 'Gestión de Talento', tag: 'Contrataciones & Altas', color: 'border-emerald-200 bg-emerald-50/50' },
+                { id: 'JEFE_OPERACIONES', name: 'Jefe de Operaciones', tag: 'Solo Operaciones', color: 'border-cyan-300 bg-cyan-50/50' },
+                { id: 'COORDINADOR_OPERACIONES', name: 'Coordinador de Operaciones', tag: 'Solo Operaciones', color: 'border-cyan-200' }
               ].map(r => (
                 <button
                   key={r.id}
@@ -617,7 +637,7 @@ export const UserModal: React.FC<UserModalProps> = ({
             </p>
 
             <div className="space-y-1.5">
-              {MODULE_OPTIONS.map(mod => {
+              {MODULE_OPTIONS.filter(mod => !['JEFE_OPERACIONES','COORDINADOR_OPERACIONES'].includes(role) || mod.id === 'OPERACIONES').map(mod => {
                 const isSelected = allowedModules.includes(mod.id);
                 return (
                   <div

@@ -32,7 +32,7 @@ const ConvocatoriaModal = lazy(() => import('./components/modals/ConvocatoriaMod
 const CreateTrainingCohortModal = lazy(() => import('./components/modals/CreateTrainingCohortModal').then(module => ({ default: module.CreateTrainingCohortModal })));
 
 const rolesForView: Partial<Record<ActiveNavModule, UserProfile['role'][]>> = {
-  OPERACIONES_ADMIN: ['ADMIN'],
+  OPERACIONES_ADMIN: ['ADMIN', 'JEFE_OPERACIONES', 'COORDINADOR_OPERACIONES'],
   SELECCION_RQ: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION'],
   SELECCION_CAPTACION: ['ADMIN', 'RECLUTADOR', 'ANALISTA_SELECCION'],
   SELECCION_DASHBOARD: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION', 'RECLUTADOR'],
@@ -55,6 +55,7 @@ const rolesForView: Partial<Record<ActiveNavModule, UserProfile['role'][]>> = {
 
 const defaultViewFor = (user: UserProfile): ActiveNavModule => {
   if (user.role === 'ADMIN') return 'ADMIN_USUARIOS';
+  if (['JEFE_OPERACIONES','COORDINADOR_OPERACIONES'].includes(user.role)) return 'OPERACIONES_ADMIN';
   if (user.role === 'RECLUTADOR') return 'MIS_CONVOCATORIAS';
   if (['JEFE_SELECCION', 'ANALISTA_SELECCION'].includes(user.role)) return 'SELECCION_DASHBOARD';
   if (user.role === 'FORMADOR') return 'FORMACION_MIS_CAPACITACIONES';
@@ -74,7 +75,7 @@ const MainLayout: React.FC = () => {
 
   useEffect(() => {
     const normalized = activeModule === 'INICIO' ? 'SELECCION_DASHBOARD' : activeModule;
-    const allowed = rolesForView[normalized]?.includes(currentUser.role) ?? false;
+    const allowed = (rolesForView[normalized]?.includes(currentUser.role) ?? false) && (normalized !== 'OPERACIONES_ADMIN' || currentUser.role === 'ADMIN' || currentUser.allowedModules?.includes('OPERACIONES'));
     if (!allowed) setActiveModule(defaultViewFor(currentUser));
   }, [activeModule, currentUser, setActiveModule]);
 

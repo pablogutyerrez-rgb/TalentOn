@@ -136,6 +136,10 @@ export const UsuariosView: React.FC = () => {
         return { label: 'Coordinador Formación', bg: 'bg-indigo-50 text-indigo-800 border-indigo-200' };
       case 'FORMADOR':
         return { label: 'Formador / Trainer', bg: 'bg-purple-50 text-purple-800 border-purple-200' };
+      case 'JEFE_OPERACIONES':
+        return { label: 'Jefe Operaciones', bg: 'bg-cyan-100 text-cyan-900 border-cyan-200' };
+      case 'COORDINADOR_OPERACIONES':
+        return { label: 'Coordinador Operaciones', bg: 'bg-cyan-50 text-cyan-800 border-cyan-200' };
       case 'JEFE_TALENTO':
       case 'ANALISTA_TALENTO':
         return { label: 'Gestión Talento', bg: 'bg-emerald-100 text-emerald-900 border-emerald-200' };
@@ -156,6 +160,8 @@ export const UsuariosView: React.FC = () => {
         return { label: 'Analítica', bg: 'bg-amber-50 text-amber-700 border-amber-200' };
       case 'ADMINISTRACION':
         return { label: 'Admin', bg: 'bg-slate-800 text-white border-slate-700' };
+      case 'OPERACIONES':
+        return { label: 'Operaciones', bg: 'bg-cyan-50 text-cyan-800 border-cyan-200' };
     }
   };
 

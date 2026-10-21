@@ -14,6 +14,10 @@ El enlace fija la empresa. El solicitante selecciona empresa y gerencia, introdu
 
 Los RQ aparecen a Administrador, Jefe de Selección y Analistas de Selección con acceso a la empresa. La conversión abre el formulario de convocatoria existente. `sourceRqId` vincula el RQ con la nueva convocatoria en la misma transacción SQL; no se crea un segundo proceso de selección. Los RQ de staff usan el catálogo interno `staff-rq`, sin mostrar una campaña al solicitante.
 
+## Perfiles de Operaciones
+
+La migración posterior `202610210002_operations_roles.sql`, aplicada el 21/10/2026, agrega el módulo `OPERACIONES` y los perfiles Jefe y Coordinador de Operaciones. Administrador conserva su acceso. Ambos perfiles ven los RQ, configuran gerencias y administran enlaces únicamente en sus empresas autorizadas. No reciben campañas ni módulos de Selección, Formación, Talento, Analítica o Administración; la vinculación con convocatorias continúa reservada a Selección. Las cuentas y empresas se asignan desde Usuarios; la migración no crea cuentas ficticias.
+
 ## Verificación realizada
 
 - `npm run check` y `npm run build` en la aplicación.

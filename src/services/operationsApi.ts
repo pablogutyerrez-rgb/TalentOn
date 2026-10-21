@@ -11,6 +11,7 @@ export interface OperationsAdminData {
   companies: { id: string; name: string }[];
   gerencias: { id: string; companyId: string; name: string; active: boolean }[];
   links: { id: string; companyId: string; active: boolean; createdAt: string }[];
+  requests: OperationsRq[];
 }
 export const operationsApi = {
   admin: () => workerApi<OperationsAdminData>('/api/operations/admin'),
