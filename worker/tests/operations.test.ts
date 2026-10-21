@@ -39,6 +39,13 @@ describe('RQ público de Operaciones', () => {
     const missing = await db.query<{ result: { found: boolean } }>('select public.talent_ops_public_lookup($1,$2,$3) result', [tokenHash, '99999999', 'ip-a']);
     expect(missing.rows[0].result.found).toBe(false);
   });
+  it('admite un perfil activo con cambio de contraseña pendiente en el enlace sin sesión', async () => {
+    await db.query('update talent.profiles set must_change_password=true where auth_user_id=$1', [requester]);
+    const found = await db.query<{ result: { found: boolean; name: string; nonce: string } }>('select public.talent_ops_public_lookup($1,$2,$3) result', [tokenHash, '81000002', 'ip-pending']);
+    expect(found.rows[0].result).toMatchObject({ found: true, name: 'Solicitante Real' });
+    expect(found.rows[0].result.nonce).toBeTruthy();
+    await db.query('update talent.profiles set must_change_password=false where auth_user_id=$1', [requester]);
+  });
   it('registra RQ solo tras consultar DNI y permite vincular la convocatoria existente', async () => {
     const found = await db.query<{ result: { found: boolean; name: string; nonce: string } }>('select public.talent_ops_public_lookup($1,$2,$3) result', [tokenHash, '81000002', 'ip-a']);
     expect(found.rows[0].result).toMatchObject({ found: true, name: 'Solicitante Real' });

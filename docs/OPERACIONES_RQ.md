@@ -18,6 +18,8 @@ Los RQ aparecen a Administrador, Jefe de Selección y Analistas de Selección co
 
 La migración posterior `202610210002_operations_roles.sql`, aplicada el 21/10/2026, agrega el módulo `OPERACIONES` y los perfiles Jefe y Coordinador de Operaciones. Administrador conserva su acceso. Ambos perfiles ven los RQ, configuran gerencias y administran enlaces únicamente en sus empresas autorizadas. No reciben campañas ni módulos de Selección, Formación, Talento, Analítica o Administración; la vinculación con convocatorias continúa reservada a Selección. Las cuentas y empresas se asignan desde Usuarios; la migración no crea cuentas ficticias.
 
+`202610210003_operations_lookup_pending_password.sql` corrige el lookup público: una contraseña pendiente de cambio ya no oculta un perfil activo con acceso a la empresa. No modifica la exigencia de cambiar la contraseña al iniciar sesión. Se verificó contra un enlace activo de Talent Up dentro de una transacción revertida, sin crear RQ ni conservar intentos de prueba.
+
 ## Verificación realizada
 
 - `npm run check` y `npm run build` en la aplicación.
