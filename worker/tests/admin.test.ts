@@ -143,12 +143,19 @@ describe('administración de usuarios', () => {
 
   it('crea Auth, perfil y auditoría con los módulos por defecto', async () => {
     installGoogleMocks();
-    const result = await request('/api/users', 'POST', { username: 'nuevo.user', password: 'Password123', displayName: 'Nuevo Usuario', nickname: 'Nue', tagline: 'Listo para formar talento', avatarUrl: 'https://images.example.com/nuevo.jpg', role: 'FORMADOR', status: 'ACTIVO' });
+    const result = await request('/api/users', 'POST', { username: 'nuevo.user', password: 'Password123', displayName: 'Nuevo Usuario', dni: '12345678', nickname: 'Nue', tagline: 'Listo para formar talento', avatarUrl: 'https://images.example.com/nuevo.jpg', role: 'FORMADOR', status: 'ACTIVO' });
     expect(result.status).toBe(200);
     await expect(result.json()).resolves.toEqual({ ok: true });
     expect(calls.some(call => call.url.endsWith('/accounts') && call.body?.email === 'nuevo.user@auth.talentcc.invalid')).toBe(true);
     expect(committedFields('/users/created-uid')).toMatchObject({ role: { stringValue: 'FORMADOR' }, nickname: { stringValue: 'Nue' }, tagline: { stringValue: 'Listo para formar talento' }, avatarUrl: { stringValue: 'https://images.example.com/nuevo.jpg' }, module: { arrayValue: { values: [{ stringValue: 'FORMACION' }] } } });
     expect(calls.some(call => (JSON.stringify(call.body) ?? '').includes('/auditLogs/'))).toBe(true);
+  });
+
+  it('exige DNI válido antes de crear la cuenta de Auth', async () => {
+    installGoogleMocks();
+    const result = await request('/api/users', 'POST', { username: 'sin.dni', password: 'Password123', displayName: 'Sin DNI', role: 'FORMADOR' });
+    expect(result.status).toBe(400);
+    expect(calls.some(call => call.url.endsWith('/accounts') && call.body?.email === 'sin.dni@auth.talentcc.invalid')).toBe(false);
   });
 
   it('actualiza rol, alcance y estado usando el endpoint /access', async () => {

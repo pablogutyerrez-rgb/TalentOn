@@ -13,6 +13,15 @@ export class WorkerApiError extends Error {
 }
 
 const WORKER_ERROR_MESSAGES: Record<string, string> = {
+  GERENCIA_REQUIRED: 'Agrega una gerencia activa antes de generar el enlace.',
+  LINK_NOT_FOUND: 'El enlace ya no está disponible.',
+  LOOKUP_EXPIRED: 'La consulta del DNI venció o ya fue utilizada. Vuelve a consultarlo.',
+  RATE_LIMITED: 'Demasiados intentos. Espera antes de volver a consultar.',
+  CHALLENGE_REQUIRED: 'Completa la verificación de seguridad.',
+  CHALLENGE_FAILED: 'No se pudo verificar el desafío. Inténtalo de nuevo.',
+  OPERATIONS_SECURITY_NOT_CONFIGURED: 'El formulario de RQ está pendiente de configuración de seguridad.',
+  INVALID_REQUESTER: 'El usuario ya no está activo o no pertenece a esta empresa.',
+  RQ_ALREADY_LINKED: 'Este RQ ya se convirtió en una convocatoria.',
   COMPANY_REQUIRED: 'Selecciona la empresa a la que pertenece el registro.',
   COMPANY_CONTEXT_AMBIGUOUS: 'Este identificador existe en varias empresas. No se modificó ningún registro; solicita revisar su identificación.',
   UNIFIED_READ_FAILED: 'No se pudo cargar la vista conjunta. Intenta actualizar; no se muestran resultados parciales.',

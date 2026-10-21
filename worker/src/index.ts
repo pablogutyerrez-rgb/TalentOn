@@ -7,6 +7,7 @@ import { organizationRequest,organizationUserGuard,organizationUserHome } from '
 import { unifiedRequest } from './unified';
 import { SupabaseError, type SupabaseEnv } from './supabase';
 import { handleSelectionAdvanced, checkProcessStage } from './selectionAdvanced';
+import { handleOperations } from './operations';
 export interface Env extends SupabaseEnv, RuntimeEnv {
   VERIFIED_SESSION?: SessionProfile;
   RELATIONAL_ACTOR?: SessionProfile;
@@ -913,10 +914,11 @@ async function createUser(request: Request, env: Env, actor: Profile) {
   const username = normalizeUsername(typeof input.username === 'string' ? input.username : '');
   const password = typeof input.password === 'string' ? input.password : '';
   const displayName = typeof input.displayName === 'string' ? input.displayName : '';
+  const dni = typeof input.dni === 'string' ? input.dni.trim() : '';
   const role = typeof input.role === 'string' ? input.role as Role : undefined;
   const status = input.status === undefined ? 'ACTIVO' : input.status;
   if (!validUsername(username)) throw new Error('El usuario debe tener entre 3 y 32 caracteres: letras, números, punto, guion o guion bajo.');
-  if (!displayName || !role || !modulesByRole[role] || !['ACTIVO', 'INACTIVO'].includes(String(status)) || password.length < 8) throw new Error('Datos de usuario inválidos. La contraseña debe tener al menos 8 caracteres.');
+  if (!displayName || !/^\d{8}$/.test(dni) || !role || !modulesByRole[role] || !['ACTIVO', 'INACTIVO'].includes(String(status)) || password.length < 8) throw new Error('Datos de usuario inválidos. El DNI debe tener 8 dígitos y la contraseña al menos 8 caracteres.');
   if ((await userIdsByUsername(env, username)).length) throw new Error('El nombre de usuario ya está en uso.');
   const authEmail = authEmailForUsername(username);
   let authData = await authUserByEmail(env, authEmail);
@@ -939,6 +941,7 @@ async function createUser(request: Request, env: Env, actor: Profile) {
     await firestoreServerWrite(env, `users/${uid}`, {
       uid,
       username,
+      dni,
       displayName,
       name: displayName,
       nickname,
@@ -974,6 +977,8 @@ async function updateUser(request: Request, env: Env, actor: Profile, uid: strin
   try { existingDocument = await firestore(env, `users/${uid}`); }
   catch (error) { if (error instanceof Error && error.message === 'FIRESTORE_404') throw new Error('Usuario no encontrado.'); throw error; }
   const existing = unpack(existingDocument.fields ?? {});
+  const dni = typeof input.dni === 'string' ? input.dni.trim() : String(existing.dni ?? '');
+  if (dni && !/^\d{8}$/.test(dni)) throw new Error('El DNI debe tener 8 dígitos.');
   if(env.ORG_ENABLED==='true')await organizationUserGuard(env,env.RELATIONAL_ACTOR!,uid);
   if(env.ORG_ENABLED==='true'&&existing.homeCompanyId&&existing.homeCompanyId!==actor.companyId)throw new Error('USER_HOME_COMPANY_REQUIRED');
   const role = typeof input.role === 'string' ? input.role as Role : undefined;
@@ -1006,6 +1011,7 @@ async function updateUser(request: Request, env: Env, actor: Profile, uid: strin
   });
   await firestoreServerWrite(env, `users/${uid}`, {
     ...(rawUsername ? { username } : {}),
+    ...(dni ? { dni } : {}),
     ...(displayName ? { displayName, name: displayName } : {}),
     ...(nickname !== undefined ? { nickname } : {}),
     ...(tagline !== undefined ? { tagline } : {}),
@@ -1181,12 +1187,16 @@ async function relationalBootstrap(request:Request,env:Env,actor:Profile) {
   const rawUsers=await listFirestore(env,'users');
   const users=env.RELATIONAL_ACTOR?.globalAdmin&&!env.RELATIONAL_ACTOR.managedCompany
     ?await organizationRequest(new Request(new URL('/api/org/users',request.url)),env,env.RELATIONAL_ACTOR)
-    :(actor.role==='ADMIN'?rawUsers:rawUsers.filter(u=>u.id===actor.uid||actor.subordinateUserIds?.includes(String(u.id)))).map(u=>({id:u.id,companyId:u.companyId,email:u.username,name:u.displayName,role:u.role,status:u.status,avatarUrl:u.avatarUrl||'',nickname:u.nickname,tagline:u.tagline,phone:u.phone,jobTitle:u.jobTitle,allowedModules:u.allowedModules,scopeCampaignIds:u.scope,subordinateUserIds:u.subordinateUserIds}));
+    :(actor.role==='ADMIN'?rawUsers:rawUsers.filter(u=>u.id===actor.uid||actor.subordinateUserIds?.includes(String(u.id)))).map(u=>({id:u.id,companyId:u.companyId,email:u.username,name:u.displayName,role:u.role,status:u.status,avatarUrl:u.avatarUrl||'',nickname:u.nickname,tagline:u.tagline,phone:u.phone,dni:u.dni,jobTitle:u.jobTitle,allowedModules:u.allowedModules,scopeCampaignIds:u.scope,subordinateUserIds:u.subordinateUserIds}));
   return response({campaigns,cohorts,candidates,users},200,cors(request,env));
 }
 
 const worker={async fetch(request:Request,env:Env):Promise<Response>{
   const path=new URL(request.url).pathname;
+  if(request.method!=='OPTIONS'&&(path.startsWith('/api/operations/')||path.startsWith('/api/public/operations/'))){
+    const result=await handleOperations(request,env);
+    if(result){const headers=new Headers(result.headers);Object.entries(cors(request,env)).forEach(([key,value])=>headers.set(key,value));return new Response(result.body,{status:result.status,headers});}
+  }
   if(env.ORG_ENABLED==='true'&&new URL(request.url).searchParams.get('unified')==='1'&&request.method!=='OPTIONS'&&!path.startsWith('/api/public/')&&path!=='/api/session/password'){
     try{
       if(!originAllowed(request,env))throw new SupabaseError(403,'ORIGIN_NOT_ALLOWED');

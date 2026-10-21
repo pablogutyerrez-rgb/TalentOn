@@ -157,8 +157,9 @@ describe('Transición relacional PostgreSQL 17',()=>{
   expect((await call('/api/bootstrap')).data.candidates[0].hiring.status).toBe('CONTRATADO');
  });
  it('usuarios creados en Auth + perfil obligatorio y bloqueo de primer acceso',async()=>{
-  const r=await call('/api/users','POST',{username:'ci.newuser',password:'temporary123',displayName:'CI nuevo',role:'RECLUTADOR',status:'ACTIVO',module:['SELECCION']});expect(r.status).toBe(200);
+  const r=await call('/api/users','POST',{username:'ci.newuser',password:'temporary123',displayName:'CI nuevo',dni:'71000001',role:'RECLUTADOR',status:'ACTIVO',module:['SELECCION']});expect(r.status).toBe(200);
   const users=(await call('/api/bootstrap')).data.users;const user=users.find((u:any)=>u.email==='ci.newuser');expect(user).toBeTruthy();
+  expect(user.dni).toBe('71000001');
   expect((await call('/api/bootstrap','GET',undefined,user.id)).status).toBe(403);
  });
  it('reset reconcilia Auth con estado activo y conserva bloqueo de inactivos',async()=>{
@@ -404,7 +405,7 @@ describe('Transición relacional PostgreSQL 17',()=>{
    const before=await call('/api/session','GET',undefined,uid);expect(before.status).toBe(200);expect(before.data.globalAdmin).toBe(false);expect(before.data.companies).toHaveLength(3);
    expect((await call('/api/session','GET',undefined,uid,'tenant')).status).toBe(403);
    const grants=['talent-up','techcenter'].map(companyId=>({companyId,role:'RECLUTADOR',enabled:true,allCampaigns:false,scopes:[companyId+':bitel-portabilidad'],version:null}));
-   const payload={username:'ci.repair.created',password:'CI-password-2026',displayName:'CI created by repaired admin',role:'RECLUTADOR',module:['SELECCION'],companyAccess:grants};
+   const payload={username:'ci.repair.created',password:'CI-password-2026',displayName:'CI created by repaired admin',dni:'71000002',role:'RECLUTADOR',module:['SELECCION'],companyAccess:grants};
    expect((await call('/api/users','POST',payload,uid,'techcenter')).status).toBe(403);
    const grantSql=readFileSync(resolve('../scripts/sql/grant-global-admin.sql'),'utf8');
    await db.query(grantSql,[trainer,username]);expect((await call('/api/session','GET',undefined,uid)).data.globalAdmin).toBe(false);
@@ -467,7 +468,7 @@ describe('Transición relacional PostgreSQL 17',()=>{
   env.ORG_ENABLED='true';
   try {
    const grants=['talent-up','techcenter'].map(companyId=>({companyId,role:'RECLUTADOR',enabled:true,allCampaigns:false,scopes:[companyId+':bitel-portabilidad'],version:null}));
-   const created=await call('/api/users','POST',{username:'ci.twocompanies',password:'CI-password-2026',displayName:'Two companies',role:'RECLUTADOR',module:['SELECCION'],companyAccess:grants});
+   const created=await call('/api/users','POST',{username:'ci.twocompanies',password:'CI-password-2026',displayName:'Two companies',dni:'71000003',role:'RECLUTADOR',module:['SELECCION'],companyAccess:grants});
    expect(created.status).toBe(200);
    const u=(await call('/api/bootstrap')).data.users.find((u:any)=>u.email==='ci.twocompanies');expect(u).toBeTruthy();
    await db.query('update talent.profiles set must_change_password=false where auth_user_id=$1',[u.id]);authUsers.get(u.id).app_metadata={runtime_password_pending:false};
@@ -484,7 +485,7 @@ describe('Transición relacional PostgreSQL 17',()=>{
    expect((await call('/api/session','GET',undefined,u.id)).data.companies.map((c:any)=>c.id)).toEqual(['talent-up']);
    expect((await call('/api/bootstrap','GET',undefined,u.id,'techcenter')).status).toBe(403);
    expect((await call('/api/users/'+u.id+'/access','PATCH',{role:'ADMIN',companyAccess:grants},u.id,'talent-up')).status).not.toBe(200);
-   const homeCreate=await call('/api/users','POST',{username:'ci.companyhome',password:'CI-password-2026',displayName:'Company home',role:'RECLUTADOR',module:['SELECCION'],companyAccess:[grants[0]]},admin,'talent-up');expect(homeCreate.status).toBe(200);
+   const homeCreate=await call('/api/users','POST',{username:'ci.companyhome',password:'CI-password-2026',displayName:'Company home',dni:'71000004',role:'RECLUTADOR',module:['SELECCION'],companyAccess:[grants[0]]},admin,'talent-up');expect(homeCreate.status).toBe(200);
    const crossUser=(await call('/api/bootstrap')).data.users.find((v:any)=>v.email==='ci.companyhome');expect(crossUser.companyId).toBe('talent-up');
    expect((await call('/api/users/'+crossUser.id+'/access','PATCH',{displayName:'Edited from Talent-On',role:'RECLUTADOR',status:'ACTIVO',module:['SELECCION']})).status).toBe(200);
   } finally {env.ORG_ENABLED=undefined;}

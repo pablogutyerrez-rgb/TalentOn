@@ -22,7 +22,7 @@ import { ActiveNavModule, AppModuleName, UserRole } from '../../types';
 import { IdentityAvatar } from '../common/IdentityAvatar';
 
 export const Sidebar: React.FC<{ navigationOpen?: boolean; onCloseNavigation?: () => void }> = ({ navigationOpen, onCloseNavigation }) => {
-  const [expandedModule, setExpandedModule] = React.useState<AppModuleName | null>('SELECCION');
+  const [expandedModule, setExpandedModule] = React.useState<AppModuleName | 'OPERACIONES' | null>('SELECCION');
   const { 
     activeModule, 
     setActiveModule, 
@@ -69,7 +69,7 @@ export const Sidebar: React.FC<{ navigationOpen?: boolean; onCloseNavigation?: (
   const readyForHiringCount = candidates.filter(c => c.currentStage === 'APTO_ALTA' || c.training?.finalResult === 'APTO_ALTA' || c.ojt?.status === 'APTO_ALTA').length;
 
   type NavigationItem = { id: ActiveNavModule; label: string; icon: LucideIcon; badge: React.ReactNode; badgeColor?: string };
-  const navSections: { group: string; modKey: AppModuleName; items: NavigationItem[] }[] = [];
+  const navSections: { group: string; modKey: AppModuleName; sectionKey?: 'OPERACIONES'; items: NavigationItem[] }[] = [];
 
   // 1. MÓDULO SELECCIÓN
   if (hasModule('SELECCION')) {
@@ -83,6 +83,7 @@ export const Sidebar: React.FC<{ navigationOpen?: boolean; onCloseNavigation?: (
     ];
 
     if (currentUser.role === 'ADMIN' || currentUser.role === 'JEFE_SELECCION' || currentUser.role === 'ANALISTA_SELECCION') {
+      selectionItems.push({ id: 'SELECCION_RQ', label: 'Alertas de RQ', icon: Briefcase, badge: null });
       selectionItems.push({
         id: 'CONVOCATORIAS',
         label: 'Convocatorias',
@@ -117,6 +118,10 @@ export const Sidebar: React.FC<{ navigationOpen?: boolean; onCloseNavigation?: (
   }
 
   // 2. MÓDULO FORMACIÓN & OJT
+  if (currentUser.role === 'ADMIN') {
+    navSections.push({ group: 'OPERACIONES', modKey: 'ADMINISTRACION', sectionKey: 'OPERACIONES', items: [{ id: 'OPERACIONES_ADMIN', label: 'Enlaces de RQ', icon: Briefcase, badge: null }] });
+  }
+
   if (hasModule('FORMACION')) {
     const formacionItems: NavigationItem[] = [
       {
@@ -228,7 +233,7 @@ export const Sidebar: React.FC<{ navigationOpen?: boolean; onCloseNavigation?: (
 
   const activeSectionKey = navSections.find(section =>
     section.items.some(item => item.id === activeModule)
-  )?.modKey;
+  )?.sectionKey || navSections.find(section => section.items.some(item => item.id === activeModule))?.modKey;
 
   React.useEffect(() => {
     if (activeSectionKey) setExpandedModule(activeSectionKey);
@@ -257,14 +262,15 @@ export const Sidebar: React.FC<{ navigationOpen?: boolean; onCloseNavigation?: (
           </div>
         ) : (
           navSections.map((section) => {
-            const MainIcon = moduleIcons[section.modKey];
-            const isExpanded = expandedModule === section.modKey;
-            const isSectionActive = activeSectionKey === section.modKey;
+            const key = section.sectionKey || section.modKey;
+            const MainIcon = section.sectionKey === 'OPERACIONES' ? Briefcase : moduleIcons[section.modKey];
+            const isExpanded = expandedModule === key;
+            const isSectionActive = activeSectionKey === key;
             return (
-            <div key={section.modKey} className="space-y-1">
+            <div key={key} className="space-y-1">
               <button
                 type="button"
-                onClick={() => setExpandedModule(isExpanded ? null : section.modKey)}
+                onClick={() => setExpandedModule(isExpanded ? null : key)}
                 aria-expanded={isExpanded}
                 className={`group flex min-h-11 w-full items-center justify-between rounded-xl px-3 text-xs font-semibold transition-colors ${
                   isSectionActive

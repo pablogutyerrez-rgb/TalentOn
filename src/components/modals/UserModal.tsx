@@ -142,6 +142,7 @@ export const UserModal: React.FC<UserModalProps> = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
+  const [dni, setDni] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [role, setRole] = useState<UserRole>('ANALISTA_SELECCION');
   const [status, setStatus] = useState<'ACTIVO' | 'INACTIVO'>('ACTIVO');
@@ -160,6 +161,7 @@ export const UserModal: React.FC<UserModalProps> = ({
       setEmail(userToEdit.email || '');
       setPassword('');
       setPhone(userToEdit.phone || '');
+      setDni(userToEdit.dni || '');
       setJobTitle(userToEdit.jobTitle || '');
       setRole(userToEdit.role || 'ANALISTA_SELECCION');
       setStatus(userToEdit.status || 'ACTIVO');
@@ -174,6 +176,7 @@ export const UserModal: React.FC<UserModalProps> = ({
       setEmail('');
       setPassword('');
       setPhone('');
+      setDni('');
       setJobTitle('Analista de Selección');
       setRole('ANALISTA_SELECCION');
       setStatus('ACTIVO');
@@ -273,8 +276,8 @@ export const UserModal: React.FC<UserModalProps> = ({
     if(saving)return;
     if(currentUser.globalAdmin&&(!companyAccess||!companyAccess.some(c=>c.enabled)||companyAccess.some(c=>c.enabled&&!c.allCampaigns&&!c.scopes.length))){setErrorMsg('Selecciona al menos una empresa y sus campañas. Espera a que termine la carga de permisos.');return;}
     const cleanName = sanitizeDisplayName(name, '');
-    if (!cleanName || !email.trim()) {
-      setErrorMsg('Nombre y usuario son obligatorios.');
+    if (!cleanName || !email.trim() || !/^\d{8}$/.test(dni.trim())) {
+      setErrorMsg('Nombre, usuario y DNI de 8 dígitos son obligatorios.');
       return;
     }
 
@@ -290,6 +293,7 @@ export const UserModal: React.FC<UserModalProps> = ({
         name: cleanName,
         email: email.trim().toLowerCase(),
         phone: phone.trim(),
+        dni: dni.trim(),
         jobTitle: jobTitle.trim(),
         role,
         status,
@@ -310,6 +314,7 @@ export const UserModal: React.FC<UserModalProps> = ({
         name: cleanName,
         email: email.trim().toLowerCase(),
         phone: phone.trim(),
+        dni: dni.trim(),
         jobTitle: jobTitle.trim() || 'Colaborador',
         role,
         status,
@@ -465,6 +470,11 @@ export const UserModal: React.FC<UserModalProps> = ({
                   onChange={(e) => setTagline(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 font-medium focus:bg-white focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
                 />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-700 block mb-1">DNI <span className="text-rose-500">*</span></label>
+                <input type="text" inputMode="numeric" pattern="[0-9]{8}" maxLength={8} required value={dni} onChange={e=>setDni(e.target.value.replace(/\D/g,''))} placeholder="8 dígitos" className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800" />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">

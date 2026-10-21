@@ -5,11 +5,15 @@ import { Header } from './components/layout/Header';
 import { LoginView } from './components/auth/LoginView';
 import { SupabaseAccessGate } from './components/auth/SupabaseAccessGate';
 import { ActiveNavModule, UserProfile } from './types';
+import { SelectionRqAlert } from './components/selection/SelectionRqAlert';
 
 const Candidate360Modal = lazy(() => import('./components/candidates/Candidate360Modal').then(module => ({ default: module.Candidate360Modal })));
 const DashboardView = lazy(() => import('./views/DashboardView').then(module => ({ default: module.DashboardView })));
 const GlobalDashboardView = lazy(() => import('./views/GlobalDashboardView').then(module => ({ default: module.GlobalDashboardView })));
 const ConvocatoriasView = lazy(() => import('./views/ConvocatoriasView').then(module => ({ default: module.ConvocatoriasView })));
+const SelectionRqView = lazy(() => import('./views/SelectionRqView').then(module => ({ default: module.SelectionRqView })));
+const OperationsAdminView = lazy(() => import('./views/OperationsAdminView').then(module => ({ default: module.OperationsAdminView })));
+const PublicOperationsRqView = lazy(() => import('./views/PublicOperationsRqView').then(module => ({ default: module.PublicOperationsRqView })));
 const MisConvocatoriasView = lazy(() => import('./views/MisConvocatoriasView').then(module => ({ default: module.MisConvocatoriasView })));
 const CandidatosView = lazy(() => import('./views/CandidatosView').then(module => ({ default: module.CandidatosView })));
 const CaptacionView = lazy(() => import('./views/CaptacionView').then(module => ({ default: module.CaptacionView })));
@@ -28,6 +32,8 @@ const ConvocatoriaModal = lazy(() => import('./components/modals/ConvocatoriaMod
 const CreateTrainingCohortModal = lazy(() => import('./components/modals/CreateTrainingCohortModal').then(module => ({ default: module.CreateTrainingCohortModal })));
 
 const rolesForView: Partial<Record<ActiveNavModule, UserProfile['role'][]>> = {
+  OPERACIONES_ADMIN: ['ADMIN'],
+  SELECCION_RQ: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION'],
   SELECCION_CAPTACION: ['ADMIN', 'RECLUTADOR', 'ANALISTA_SELECCION'],
   SELECCION_DASHBOARD: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION', 'RECLUTADOR'],
   CONVOCATORIAS: ['ADMIN', 'JEFE_SELECCION', 'ANALISTA_SELECCION'],
@@ -101,6 +107,9 @@ const MainLayout: React.FC = () => {
           {connectionError && <div role="alert" className="m-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{connectionError}<button className="ml-4 underline" onClick={()=>window.dispatchEvent(new Event('talent:data-changed'))}>Reintentar</button></div>}
           <Suspense fallback={<div className="py-12 text-center text-slate-500">Cargando módulo…</div>}>
           <div className="talent-view w-full space-y-6">
+            {(activeModule === 'INICIO' || activeModule === 'SELECCION_DASHBOARD') && <SelectionRqAlert />}
+            {activeModule === 'SELECCION_RQ' && <SelectionRqView />}
+            {activeModule === 'OPERACIONES_ADMIN' && <OperationsAdminView />}
             {activeModule === 'SELECCION_CAPTACION' && <CaptacionView />}
             
             {/* SELECCIÓN MODULE */}
@@ -204,6 +213,8 @@ const AppContent: React.FC = () => {
 };
 
 export default function App() {
+  const operationsRoute = window.location.pathname.match(/^\/operaciones\/rq\/([a-f0-9]{48})$/);
+  if (operationsRoute) return <Suspense fallback={<p className="p-6">Cargando RQ…</p>}><PublicOperationsRqView token={operationsRoute[1]} /></Suspense>;
   const captureRoute = window.location.pathname.match(/^\/captacion\/([a-f0-9]{48})$/);
   if (captureRoute) return <Suspense fallback={<p className="p-6">Cargando formulario…</p>}><PublicCaptureView token={captureRoute[1]} /></Suspense>;
   return (

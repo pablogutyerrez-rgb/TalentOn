@@ -20,24 +20,29 @@ import { CampaignCall, ProcessType, ManagementType, ConvocatoriaStatus } from '.
 import { getWorkerErrorMessage, workerApi } from '../../services/workerApi';
 import {CompanyCampaignPicker} from '../common/CompanyCampaignPicker';
 import { CANDIDATE_IMPORT_TEMPLATE, parseCandidateCsv, type CandidateImportRow } from '../../utils/candidateImport';
+import { operationsApi, type OperationsRq } from '../../services/operationsApi';
 
 interface ConvocatoriaModalProps {
   isOpen: boolean;
   onClose: () => void;
   convocatoriaToEdit?: CampaignCall | null;
+  initialRq?: OperationsRq | null;
+  onRqLinked?: () => void;
 }
 
 export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
   isOpen,
   onClose,
-  convocatoriaToEdit
+  convocatoriaToEdit,
+  initialRq,
+  onRqLinked
 }) => {
   const { createConvocatoria, updateConvocatoria, currentUser, availableUsers } = useTalent();
 
   const [company, setCompany] = useState('');
   const [companyId,setCompanyId]=useState('');
   const [companyCampaignId,setCompanyCampaignId]=useState('');
-  useEffect(()=>{if(isOpen){setCompanyId(convocatoriaToEdit?.companyId||'');setCompanyCampaignId(convocatoriaToEdit?.companyCampaignId||'');}},[isOpen,convocatoriaToEdit]);
+  useEffect(()=>{if(isOpen){setCompanyId(convocatoriaToEdit?.companyId||initialRq?.companyId||'');setCompanyCampaignId(convocatoriaToEdit?.companyCampaignId||initialRq?.companyCampaignId|| (initialRq?.kind==='STAFF'?`${initialRq.companyId}:staff-rq`:'')||'');}},[isOpen,convocatoriaToEdit,initialRq]);
   const [title, setTitle] = useState('');
   const [code, setCode] = useState('');
   const [area, setArea] = useState('Operaciones Contact Center');
@@ -110,6 +115,7 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
       setRequirementsList(convocatoriaToEdit.requirements || []);
     } else {
       setCompany('');
+      setServiceType('VENTAS_OUTBOUND');
       setTitle('');
       setCode(`CONV-2026-${Math.floor(100 + Math.random() * 900)}`);
       setArea('Operaciones Contact Center');
@@ -132,8 +138,15 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
         'Mínimo 3 meses de experiencia en contact center o ventas',
         'Buena modulación verbal y dicción'
       ]);
+      if(initialRq){
+        setCompany(initialRq.companyName);setTitle(initialRq.profileRequired);setArea(initialRq.gerencia);
+        setSalaryBase(initialRq.salary);setVacancies(initialRq.fts);setLocation(initialRq.location);
+        setShift(initialRq.schedule);setRequestDate(initialRq.createdAt.slice(0,10));
+        if(initialRq.kind==='STAFF')setServiceType('STAFF_ADMIN');
+        setObservations(`RQ ${initialRq.id} · Solicitante: ${initialRq.requesterName} · Criticidad: ${initialRq.criticality} · Ingreso esperado: ${initialRq.expectedStart}${initialRq.observations?` · ${initialRq.observations}`:''}`);
+      }
     }
-  }, [convocatoriaToEdit, isOpen, currentUser.id]);
+  }, [convocatoriaToEdit, initialRq, isOpen, currentUser.id]);
 
   if (!isOpen) return null;
 
@@ -190,6 +203,7 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
 
     const payload: Partial<CampaignCall> = {
       companyId,companyCampaignId,
+      ...(initialRq ? { sourceRqId: initialRq.id } : {}),
       code,
       company: company.trim(),
       title: title.trim(),
@@ -202,6 +216,7 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
       mobilityBonus: Number(mobilityBonus),
       additionalConditions,
       requestDate,
+      ...(initialRq ? { startDate: initialRq.expectedStart } : {}),
       processType,
       managementType,
       vacancies: Number(vacancies),
@@ -224,6 +239,7 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
         campaignId = created.id;
         setCreatedCampaignId(campaignId);
       }
+      if(initialRq&&campaignId){await operationsApi.linkCampaign(initialRq.id,initialRq.companyId,campaignId);onRqLinked?.();}
       if (!importRows.length) { onClose(); return; }
       const imported = new Set(importedLines);
       const failures: string[] = [];

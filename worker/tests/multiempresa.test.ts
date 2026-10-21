@@ -27,9 +27,9 @@ describe('Multiempresa preparada: SQL real y RLS',()=>{
    await expect(db.query("insert into talent_org.user_companies(company_id,id,auth_user_id,role) values('techcenter','collision-member',$1,'ADMIN')",[actor])).rejects.toThrow('TALENT_PROFILE_ID_COLLISION');
   } finally {await db.exec('rollback')}
  });
- it('tres empresas, cuatro definiciones únicas y ocho asociaciones',async()=>{
-  expect((await db.query<{n:number}>('select count(*)::int as n from talent_org.global_campaigns')).rows[0].n).toBe(4);
-  expect((await db.query<{n:number}>('select count(*)::int as n from talent_org.company_campaigns')).rows[0].n).toBe(8);
+ it('tres empresas, cuatro campañas y el catálogo transversal de staff',async()=>{
+  expect((await db.query<{n:number}>('select count(*)::int as n from talent_org.global_campaigns')).rows[0].n).toBe(5);
+  expect((await db.query<{n:number}>('select count(*)::int as n from talent_org.company_campaigns')).rows[0].n).toBe(11);
  });
  it('ADMIN antiguo no adquiere acceso global ni a otra empresa',async()=>{
   const r=await db.query('select talent_private.org_global_admin($1) as global,talent_private.org_company_access($1,$2) as access',[stranger,'techcenter']);

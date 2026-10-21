@@ -39,6 +39,7 @@ export interface UserProfile {
   tagline?: string;
   jobTitle?: string;
   phone?: string;
+  dni?: string;
   status?: 'ACTIVO' | 'INACTIVO';
   allowedModules?: AppModuleName[];
   scopeCampaignIds?: string[];
@@ -450,6 +451,7 @@ export interface ConvocatoriaStatusChange {
 }
 
 export interface CampaignCall {
+  sourceRqId?: string;
   companyId?: string;
   companyName?: string;
   companyCampaignId?: string;
@@ -685,6 +687,8 @@ export interface TrainingCohort {
 }
 
 export type ActiveNavModule = 
+  | 'OPERACIONES_ADMIN'
+  | 'SELECCION_RQ'
   | 'SELECCION_CAPTACION'
   | 'INICIO'
   | 'SELECCION_DASHBOARD'

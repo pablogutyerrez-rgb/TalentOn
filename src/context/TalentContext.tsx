@@ -50,7 +50,7 @@ const normalizeUserIdentity = (user: UserProfile): UserProfile => ({
   avatarUrl: normalizeAvatarUrl(user.avatarUrl),
 });
 const profileFromFirestore = (id: string, data: Record<string, unknown>): UserProfile => ({
-  id, companyId: typeof data.companyId === 'string' ? data.companyId : undefined, email: typeof data.username === 'string' ? data.username : '', name: sanitizeDisplayName(typeof data.displayName === 'string' ? data.displayName : (typeof data.name === 'string' ? data.name : 'Usuario')), nickname: typeof data.nickname === 'string' ? sanitizeDisplayName(data.nickname, '') : undefined, tagline: typeof data.tagline === 'string' ? sanitizeDisplayName(data.tagline, '') : undefined, role: data.role as UserProfile['role'], avatarUrl: normalizeAvatarUrl(typeof data.avatarUrl === 'string' ? data.avatarUrl : ''), status: data.status === 'INACTIVO' || data.enabled === false ? 'INACTIVO' : 'ACTIVO', jobTitle: typeof data.jobTitle === 'string' ? data.jobTitle : undefined, allowedModules: Array.isArray(data.module) ? data.module as UserProfile['allowedModules'] : (Array.isArray(data.allowedModules) ? data.allowedModules as UserProfile['allowedModules'] : defaultModulesForRole[data.role as UserProfile['role']]), scopeCampaignIds: Array.isArray(data.scope) ? data.scope as string[] : (Array.isArray(data.scopeCampaignIds) ? data.scopeCampaignIds as string[] : []), subordinateUserIds: Array.isArray(data.subordinateUserIds) ? data.subordinateUserIds as string[] : [],
+  id, companyId: typeof data.companyId === 'string' ? data.companyId : undefined, email: typeof data.username === 'string' ? data.username : '', name: sanitizeDisplayName(typeof data.displayName === 'string' ? data.displayName : (typeof data.name === 'string' ? data.name : 'Usuario')), nickname: typeof data.nickname === 'string' ? sanitizeDisplayName(data.nickname, '') : undefined, tagline: typeof data.tagline === 'string' ? sanitizeDisplayName(data.tagline, '') : undefined, dni: typeof data.dni === 'string' ? data.dni : undefined, role: data.role as UserProfile['role'], avatarUrl: normalizeAvatarUrl(typeof data.avatarUrl === 'string' ? data.avatarUrl : ''), status: data.status === 'INACTIVO' || data.enabled === false ? 'INACTIVO' : 'ACTIVO', jobTitle: typeof data.jobTitle === 'string' ? data.jobTitle : undefined, allowedModules: Array.isArray(data.module) ? data.module as UserProfile['allowedModules'] : (Array.isArray(data.allowedModules) ? data.allowedModules as UserProfile['allowedModules'] : defaultModulesForRole[data.role as UserProfile['role']]), scopeCampaignIds: Array.isArray(data.scope) ? data.scope as string[] : (Array.isArray(data.scopeCampaignIds) ? data.scopeCampaignIds as string[] : []), subordinateUserIds: Array.isArray(data.subordinateUserIds) ? data.subordinateUserIds as string[] : [],
 });
 const campaignFromFirestore = (id: string, data: Record<string, unknown>): CampaignCall => {
   const campaign = { id, ...data } as CampaignCall;
@@ -388,6 +388,7 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       password: userData.password,
       displayName: sanitizeDisplayName(userData.name),
       phone: userData.phone,
+      dni: userData.dni,
       jobTitle: userData.jobTitle,
       role: userData.role,
       status: userData.status || 'ACTIVO',
@@ -415,6 +416,7 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       name: displayName,
       username: usernameChanged ? normalizedUsername : undefined,
       phone: data.phone ?? existingUser?.phone ?? '',
+      dni: data.dni ?? existingUser?.dni,
       jobTitle: data.jobTitle ?? existingUser?.jobTitle ?? '',
       role: data.role || existingUser?.role || currentUser.role,
       status: data.status || existingUser?.status || 'ACTIVO',
@@ -734,6 +736,7 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }));
 
     const newCamp: CampaignCall = {
+      sourceRqId: campData.sourceRqId,
       companyId:campData.companyId,
       companyCampaignId:campData.companyCampaignId,
       id: newId,
@@ -742,7 +745,7 @@ export const TalentProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       title: campData.title || 'Nueva Campaña de Contact Center',
       client: campData.company || 'Empresa Cliente',
       area: campData.area || 'Operaciones',
-      salaryBase: campData.salaryBase || 1250,
+      salaryBase: campData.salaryBase ?? 1250,
       variableBonus: campData.variableBonus || 0,
       adminBonus: campData.adminBonus || 0,
       mobilityBonus: campData.mobilityBonus || 0,
