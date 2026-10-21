@@ -12,7 +12,7 @@ export function PublicOperationsRqView({ token }: { token: string }) {
   const [name, setName] = useState('');
   const [nonce, setNonce] = useState('');
   const [challenge, setChallenge] = useState('');
-  const [form, setForm] = useState({ kind: 'MASIVA', companyCampaignId: '', profileRequired: '', fts: 1, salary: 0, expectedStart: '', criticality: 'MEDIA', schedule: '', location: '', observations: '' });
+  const [form, setForm] = useState({ kind: 'MASIVA', companyCampaignId: '', profileRequired: '', fts: 1, salary: 0, variableBonus: 0, mobilityBonus: 0, expectedStart: '', criticality: 'MEDIA', schedule: '', modality: '', observations: '' });
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -60,22 +60,24 @@ export function PublicOperationsRqView({ token }: { token: string }) {
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm font-semibold">Empresa *<select required className={field} value={company} onChange={event => { setCompany(event.target.value); setGerenciaId(''); resetIdentity(); }}><option value="">Selecciona la empresa</option><option value={config.companyId}>{config.companyName}</option></select></label>
         <label className="text-sm font-semibold">Gerencia *<select required disabled={!company} className={field} value={gerenciaId} onChange={event => { setGerenciaId(event.target.value); resetIdentity(); }}><option value="">Selecciona la gerencia</option>{config.gerencias.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-        <label className="text-sm font-semibold">DNI del solicitante *<input className={field} inputMode="numeric" pattern="[0-9]{8}" maxLength={8} value={dni} onChange={event => { setDni(event.target.value.replace(/\D/g, '')); resetIdentity(); }} /></label>
+        <label className="text-sm font-semibold">DNI del solicitante *<input className={field} inputMode="numeric" enterKeyHint="go" pattern="[0-9]{8}" maxLength={8} value={dni} onChange={event => { setDni(event.target.value.replace(/\D/g, '')); resetIdentity(); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (!busy && !nonce) void lookup(); } }} /></label>
         <label className="text-sm font-semibold">Nombre y apellido<input className={`${field} bg-slate-50`} readOnly value={name} placeholder="Se completará con el DNI" /></label>
       </div>
-      {!nonce && <><div ref={widget} /><button type="button" disabled={busy || !config.securityReady} onClick={() => void lookup()} className="rounded-lg bg-[#143A56] px-4 py-2 text-white disabled:opacity-50">Consultar DNI</button></>}
+      {!nonce && <><div ref={widget} /><p className="text-sm text-slate-600">Completa la verificación y pulsa Enter en el DNI para identificarte.</p></>}
       {nonce && <form onSubmit={submit} className="space-y-4 border-t pt-5">
         <p className="text-sm text-green-700">Identificado: {name}. Completa el requerimiento.</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm font-semibold">Tipo de RQ *<select required className={field} value={form.kind} onChange={event => setForm(current => ({ ...current, kind: event.target.value, companyCampaignId: '' }))}><option value="MASIVA">Campaña masiva</option><option value="STAFF">Puesto de staff</option></select></label>
           {form.kind === 'MASIVA' && <label className="text-sm font-semibold">Campaña *<select required className={field} value={form.companyCampaignId} onChange={event => setForm(current => ({ ...current, companyCampaignId: event.target.value }))}><option value="">Selecciona una campaña</option>{config.campaigns.filter(item => !item.id.endsWith(':staff-rq')).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-          <label className="text-sm font-semibold">Perfil requerido *<input required minLength={2} maxLength={200} className={field} value={form.profileRequired} onChange={event => setForm(current => ({ ...current, profileRequired: event.target.value }))} /></label>
+          <label className="text-sm font-semibold">Perfil requerido *<select required className={field} value={form.profileRequired} onChange={event => setForm(current => ({ ...current, profileRequired: event.target.value }))}><option value="">Selecciona un perfil</option>{['Teleoperador de Ventas', 'Live Commerce', 'Streaming'].map(value => <option key={value} value={value}>{value}</option>)}</select></label>
           <label className="text-sm font-semibold">Cantidad de FTs *<input required type="number" min={1} max={10000} className={field} value={form.fts} onChange={event => setForm(current => ({ ...current, fts: Number(event.target.value) }))} /></label>
           <label className="text-sm font-semibold">Sueldo (S/) *<input required type="number" min={0} step="0.01" className={field} value={form.salary} onChange={event => setForm(current => ({ ...current, salary: Number(event.target.value) }))} /></label>
+          <label className="text-sm font-semibold">Bono variable (S/) *<input required type="number" min={0} step="0.01" className={field} value={form.variableBonus} onChange={event => setForm(current => ({ ...current, variableBonus: Number(event.target.value) }))} /></label>
+          <label className="text-sm font-semibold">Bono de movilidad (S/) *<input required type="number" min={0} step="0.01" className={field} value={form.mobilityBonus} onChange={event => setForm(current => ({ ...current, mobilityBonus: Number(event.target.value) }))} /></label>
           <label className="text-sm font-semibold">Fecha esperada de ingreso *<input required type="date" className={field} value={form.expectedStart} onChange={event => setForm(current => ({ ...current, expectedStart: event.target.value }))} /></label>
           <label className="text-sm font-semibold">Criticidad *<select required className={field} value={form.criticality} onChange={event => setForm(current => ({ ...current, criticality: event.target.value }))}>{['BAJA', 'MEDIA', 'ALTA', 'CRITICA'].map(value => <option key={value} value={value}>{value}</option>)}</select></label>
           <label className="text-sm font-semibold">Horario *<input required minLength={2} maxLength={200} className={field} value={form.schedule} onChange={event => setForm(current => ({ ...current, schedule: event.target.value }))} /></label>
-          <label className="text-sm font-semibold">Ubicación *<input required minLength={2} maxLength={200} className={field} value={form.location} onChange={event => setForm(current => ({ ...current, location: event.target.value }))} /></label>
+          <label className="text-sm font-semibold">Modalidad *<select required className={field} value={form.modality} onChange={event => setForm(current => ({ ...current, modality: event.target.value }))}><option value="">Selecciona la modalidad</option><option value="PRESENCIAL">Presencial</option><option value="REMOTA">Remota</option></select></label>
         </div>
         <label className="block text-sm font-semibold">Observaciones<textarea maxLength={2000} className={field} value={form.observations} onChange={event => setForm(current => ({ ...current, observations: event.target.value }))} /></label>
         <button disabled={busy} className="rounded-lg bg-[#143A56] px-5 py-2 text-white disabled:opacity-50">Enviar RQ</button>

@@ -3,8 +3,8 @@ import { workerApi, getWorkerErrorMessage } from './workerApi';
 export interface OperationsRq {
   id: string; companyId: string; companyName: string; gerencia: string; requesterName: string;
   kind: 'MASIVA' | 'STAFF'; companyCampaignId: string | null; campaignName: string | null;
-  profileRequired: string; fts: number; salary: number; expectedStart: string;
-  criticality: 'BAJA' | 'MEDIA' | 'ALTA' | 'CRITICA'; schedule: string; location: string; observations: string;
+  profileRequired: string; fts: number; salary: number; variableBonus: number; mobilityBonus: number; expectedStart: string;
+  criticality: 'BAJA' | 'MEDIA' | 'ALTA' | 'CRITICA'; schedule: string; location: string | null; modality: 'PRESENCIAL' | 'REMOTA' | null; observations: string;
   status: 'PENDIENTE' | 'CONVOCATORIA_CREADA'; campaignId: string | null; createdAt: string;
 }
 export interface OperationsAdminData {

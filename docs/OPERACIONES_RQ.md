@@ -20,6 +20,8 @@ La migración posterior `202610210002_operations_roles.sql`, aplicada el 21/10/2
 
 `202610210003_operations_lookup_pending_password.sql` corrige el lookup público: una contraseña pendiente de cambio ya no oculta un perfil activo con acceso a la empresa. No modifica la exigencia de cambiar la contraseña al iniciar sesión. Se verificó contra un enlace activo de Talent Up dentro de una transacción revertida, sin crear RQ ni conservar intentos de prueba.
 
+`202610210004_operations_rq_form.sql` agrega bono variable, bono de movilidad y modalidad al RQ. El formulario identifica el DNI al pulsar Enter, ofrece solo Teleoperador de Ventas, Live Commerce o Streaming, y permite modalidad Presencial o Remota. El servidor valida las opciones y ambos bonos. La ubicación antigua se conserva en los RQ históricos; los nuevos no la solicitan. Al convertir el RQ, los bonos y la modalidad se precargan en la convocatoria, y la sede queda «Por definir» si el RQ no tenía ubicación.
+
 ## Verificación realizada
 
 - `npm run check` y `npm run build` en la aplicación.

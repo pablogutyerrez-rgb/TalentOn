@@ -49,20 +49,23 @@ describe('RQ público de Operaciones', () => {
   it('registra RQ solo tras consultar DNI y permite vincular la convocatoria existente', async () => {
     const found = await db.query<{ result: { found: boolean; name: string; nonce: string } }>('select public.talent_ops_public_lookup($1,$2,$3) result', [tokenHash, '81000002', 'ip-a']);
     expect(found.rows[0].result).toMatchObject({ found: true, name: 'Solicitante Real' });
-    const data = { gerenciaId, dni: '81000002', kind: 'MASIVA', companyCampaignId: 'techcenter:bitel-portabilidad', profileRequired: 'Asesor de ventas', fts: 10, salary: 1500, expectedStart: '2026-11-01', criticality: 'ALTA', schedule: 'Lunes a sábado', location: 'Lima', observations: 'Prueba' };
+    const data = { gerenciaId, dni: '81000002', kind: 'MASIVA', companyCampaignId: 'techcenter:bitel-portabilidad', profileRequired: 'Teleoperador de Ventas', fts: 10, salary: 1500, variableBonus: 250, mobilityBonus: 80, expectedStart: '2026-11-01', criticality: 'ALTA', schedule: 'Lunes a sábado', modality: 'PRESENCIAL', observations: 'Prueba' };
+    await expect(db.query('select public.talent_ops_public_submit($1,$2,$3,$4::jsonb)', [tokenHash, found.rows[0].result.nonce, 'ip-a', JSON.stringify({ ...data, profileRequired: 'Otro' })])).rejects.toThrow('INVALID_RQ_DETAILS');
+    await expect(db.query('select public.talent_ops_public_submit($1,$2,$3,$4::jsonb)', [tokenHash, found.rows[0].result.nonce, 'ip-a', JSON.stringify({ ...data, modality: 'HIBRIDA' })])).rejects.toThrow('INVALID_RQ_DETAILS');
+    await expect(db.query('select public.talent_ops_public_submit($1,$2,$3,$4::jsonb)', [tokenHash, found.rows[0].result.nonce, 'ip-a', JSON.stringify({ ...data, variableBonus: -1 })])).rejects.toThrow('INVALID_BONUS');
     const saved = await db.query<{ result: { id: string } }>('select public.talent_ops_public_submit($1,$2,$3,$4::jsonb) result', [tokenHash, found.rows[0].result.nonce, 'ip-a', JSON.stringify(data)]);
     const rqId = saved.rows[0].result.id;
     const retried = await db.query<{ result: { id: string } }>('select public.talent_ops_public_submit($1,$2,$3,$4::jsonb) result', [tokenHash, found.rows[0].result.nonce, 'ip-a', JSON.stringify(data)]);
     expect(retried.rows[0].result.id).toBe(rqId);
-    const list = await db.query<{ result: { id: string }[] }>('select public.talent_ops_selection($1) result', [admin]);
-    expect(list.rows[0].result.some(item => item.id === rqId)).toBe(true);
+    const list = await db.query<{ result: { id: string; variableBonus: number; mobilityBonus: number; modality: string; location: string | null }[] }>('select public.talent_ops_selection($1) result', [admin]);
+    expect(list.rows[0].result.find(item => item.id === rqId)).toMatchObject({ variableBonus: 250, mobilityBonus: 80, modality: 'PRESENCIAL', location: null });
     await expect(db.query('select public.talent_ops_selection($1)', [outsider])).rejects.toThrow();
     await db.query(`insert into talent.campaigns(company_id,id,company_campaign_id,code,title,status,vacancies,salary_base,annotations) values('techcenter','rq-campaign','techcenter:bitel-portabilidad','RQ-CI','Asesor de ventas','EN_PROCESO',10,1500,$1::jsonb)`, [JSON.stringify({ sourceRqId: rqId })]);
     const linked = await db.query<{ result: { ok: boolean } }>('select public.talent_ops_request_link($1,$2,$3,$4) result', [admin, rqId, 'techcenter', 'rq-campaign']);
     expect(linked.rows[0].result).toEqual({ ok: true });
     await expect(db.query('select public.talent_ops_request_link($1,$2,$3,$4)', [outsider, rqId, 'techcenter', 'rq-campaign'])).rejects.toThrow();
     const staffLookup = await db.query<{ result: { nonce: string } }>('select public.talent_ops_public_lookup($1,$2,$3) result', [tokenHash, '81000002', 'ip-a']);
-    const staff = await db.query<{ result: { id: string } }>('select public.talent_ops_public_submit($1,$2,$3,$4::jsonb) result', [tokenHash, staffLookup.rows[0].result.nonce, 'ip-a', JSON.stringify({ ...data, kind: 'STAFF', companyCampaignId: null, profileRequired: 'Coordinador de TI' })]);
+    const staff = await db.query<{ result: { id: string } }>('select public.talent_ops_public_submit($1,$2,$3,$4::jsonb) result', [tokenHash, staffLookup.rows[0].result.nonce, 'ip-a', JSON.stringify({ ...data, kind: 'STAFF', companyCampaignId: null, profileRequired: 'Live Commerce', modality: 'REMOTA' })]);
     const stored = await db.query<{ company_campaign_id: string | null }>('select company_campaign_id from talent_ops.requests where id=$1', [staff.rows[0].result.id]);
     expect(stored.rows[0].company_campaign_id).toBeNull();
   });

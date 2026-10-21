@@ -23,6 +23,7 @@ const funnelOnly=process.argv.includes('--funnel');
 const operationsOnly=process.argv.includes('--operations');
 const operationsRolesOnly=process.argv.includes('--operations-roles');
 const operationsLookupOnly=process.argv.includes('--operations-lookup');
+const operationsFormOnly=process.argv.includes('--operations-form');
 const grantIndex=process.argv.indexOf('--grant-global-admin');
 const grantUsername=grantIndex<0?null:process.argv[grantIndex+1];
 if(grantIndex>=0&&(!grantUsername||! /^[a-z0-9._-]{3,32}$/.test(grantUsername)))throw Error('EXACT_ADMIN_USERNAME_REQUIRED');
@@ -40,8 +41,8 @@ async function grantGlobal(db,actor){
  await db.query('select public.talent_org_directory($1)',[target.auth_user_id]);
  return context;
 }
-const guardOnly=process.argv.includes('--guard');const contextOnly=process.argv.includes('--context');const extensionOnly=identityOnly||guardOnly||contextOnly||profileOnly||globalOnly||userOrderOnly||captureFormOnly||captureSettingsOnly||captureBuilderOnly||captureRolesOnly||unifiedOnly||funnelOnly||operationsOnly||operationsRolesOnly||operationsLookupOnly;
-const names=operationsLookupOnly?['202610210003_operations_lookup_pending_password.sql']:operationsRolesOnly?['202610210002_operations_roles.sql']:operationsOnly?['202610210001_operations_rq.sql']:funnelOnly?['202610160020_global_selection_funnel.sql']:unifiedOnly?['202610160019_unified_record_context.sql']:captureRolesOnly?['202610130018_capture_form_roles.sql']:captureBuilderOnly?['202610130017_capture_form_builder.sql']:captureSettingsOnly?['202610130016_capture_campaign_settings.sql']:captureFormOnly?['202610130015_public_capture_catalog.sql']:userOrderOnly?['202610130014_user_create_membership_order.sql']:globalOnly?['202610130013_global_dashboard_user_access.sql']:profileOnly?['202610120012_multiempresa_profile_identity.sql']:contextOnly?['202610120011_multiempresa_context_list.sql']:guardOnly?['202610120010_multiempresa_global_guard.sql']:identityOnly?['202610120009_multiempresa_identity.sql']:['202610120007_multiempresa_prepared.sql','202610120008_multiempresa_runtime.sql'];
+const guardOnly=process.argv.includes('--guard');const contextOnly=process.argv.includes('--context');const extensionOnly=identityOnly||guardOnly||contextOnly||profileOnly||globalOnly||userOrderOnly||captureFormOnly||captureSettingsOnly||captureBuilderOnly||captureRolesOnly||unifiedOnly||funnelOnly||operationsOnly||operationsRolesOnly||operationsLookupOnly||operationsFormOnly;
+const names=operationsFormOnly?['202610210004_operations_rq_form.sql']:operationsLookupOnly?['202610210003_operations_lookup_pending_password.sql']:operationsRolesOnly?['202610210002_operations_roles.sql']:operationsOnly?['202610210001_operations_rq.sql']:funnelOnly?['202610160020_global_selection_funnel.sql']:unifiedOnly?['202610160019_unified_record_context.sql']:captureRolesOnly?['202610130018_capture_form_roles.sql']:captureBuilderOnly?['202610130017_capture_form_builder.sql']:captureSettingsOnly?['202610130016_capture_campaign_settings.sql']:captureFormOnly?['202610130015_public_capture_catalog.sql']:userOrderOnly?['202610130014_user_create_membership_order.sql']:globalOnly?['202610130013_global_dashboard_user_access.sql']:profileOnly?['202610120012_multiempresa_profile_identity.sql']:contextOnly?['202610120011_multiempresa_context_list.sql']:guardOnly?['202610120010_multiempresa_global_guard.sql']:identityOnly?['202610120009_multiempresa_identity.sql']:['202610120007_multiempresa_prepared.sql','202610120008_multiempresa_runtime.sql'];
 const hash=v=>createHash('sha256').update(v).digest('hex');const quote=v=>'"'+v.replaceAll('"','""')+'"';
 let isolated;
 try{
@@ -57,7 +58,7 @@ try{
   // No reubicar empresas que ya tengan registros bajo IDs reservados.
   if(!extensionOnly&&!grantUsername&&(await c.query("select count(*)::int as n from talent.companies where id in ('talent-up','techcenter','konectados')")).rows[0].n)throw Error('CATALOG_ID_CONFLICT_REQUIRES_REVIEW');
   await c.query('begin isolation level repeatable read read only');
-  const tables=(await c.query("select schemaname,tablename from pg_tables where schemaname in ('talent','talent_private','talent_org') or (schemaname='public' and tablename='talent_documents') order by schemaname,tablename")).rows;
+  const tables=(await c.query("select schemaname,tablename from pg_tables where schemaname in ('talent','talent_private','talent_org','talent_ops') or (schemaname='public' and tablename='talent_documents') order by schemaname,tablename")).rows;
   const backup={project,createdAt:new Date().toISOString(),tables:{},functions:(await c.query("select pg_get_functiondef(p.oid) as definition from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='talent_private' or (n.nspname='public' and p.proname like 'talent_%')")).rows.map(r=>r.definition),migrations:readdirSync('supabase/migrations').filter(n=>applied.some(a=>a.name===n)).sort().map(name=>({name,sql:readFileSync('supabase/migrations/'+name,'utf8')}))};
   for(const t of tables){const key=t.schemaname+'.'+t.tablename;backup.tables[key]=(await c.query('select to_jsonb(r) as row from '+quote(t.schemaname)+'.'+quote(t.tablename)+' r')).rows.map(r=>r.row);}
   await c.query('rollback');mkdirSync('supabase/.local',{recursive:true});
@@ -70,7 +71,7 @@ try{
   const ids=new Set(Object.values(saved.tables).flat().flatMap(row=>Object.values(row).filter(v=>typeof v==='string'&&/^[a-f0-9-]{36}$/.test(v))));
   for(const id of ids)await isolated.query('insert into auth.users(id) values($1::uuid) on conflict do nothing',[id]);
   await isolated.exec('begin;set constraints all deferred');
-  await isolated.exec("do $$ declare f record;begin for f in select conrelid::regclass as tbl,conname from pg_constraint where contype='f' and connamespace in ('talent'::regnamespace,'talent_private'::regnamespace) or (contype='f' and connamespace=(select oid from pg_namespace where nspname='talent_org')) loop execute format('alter table %s alter constraint %I deferrable initially deferred',f.tbl,f.conname);end loop;end $$;");
+  await isolated.exec("do $$ declare f record;begin for f in select conrelid::regclass as tbl,conname from pg_constraint where contype='f' and connamespace in ('talent'::regnamespace,'talent_private'::regnamespace,'talent_org'::regnamespace,'talent_ops'::regnamespace) loop execute format('alter table %s alter constraint %I deferrable initially deferred',f.tbl,f.conname);end loop;end $$;");
   await isolated.exec('truncate '+Object.keys(saved.tables).join(',')+' restart identity cascade');
   for(const key of Object.keys(saved.tables))await isolated.exec('alter table '+key+' disable trigger user');
   for(const [key,rows]of Object.entries(saved.tables)){

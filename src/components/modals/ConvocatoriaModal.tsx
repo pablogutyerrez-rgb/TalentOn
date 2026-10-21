@@ -140,7 +140,9 @@ export const ConvocatoriaModal: React.FC<ConvocatoriaModalProps> = ({
       ]);
       if(initialRq){
         setCompany(initialRq.companyName);setTitle(initialRq.profileRequired);setArea(initialRq.gerencia);
-        setSalaryBase(initialRq.salary);setVacancies(initialRq.fts);setLocation(initialRq.location);
+        setSalaryBase(initialRq.salary);setVariableBonus(initialRq.variableBonus);setMobilityBonus(initialRq.mobilityBonus);
+        setVacancies(initialRq.fts);setLocation(initialRq.location || 'Por definir');
+        if(initialRq.modality)setManagementType(initialRq.modality);
         setShift(initialRq.schedule);setRequestDate(initialRq.createdAt.slice(0,10));
         if(initialRq.kind==='STAFF')setServiceType('STAFF_ADMIN');
         setObservations(`RQ ${initialRq.id} · Solicitante: ${initialRq.requesterName} · Criticidad: ${initialRq.criticality} · Ingreso esperado: ${initialRq.expectedStart}${initialRq.observations?` · ${initialRq.observations}`:''}`);
