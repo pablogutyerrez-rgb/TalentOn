@@ -33,7 +33,7 @@ export function PublicOperationsRqView({ token }: { token: string }) {
   }, [config]);
   const resetIdentity = () => { setName(''); setNonce(''); };
   const lookup = async () => {
-    if (!company || !gerenciaId || !/^\d{8}$/.test(dni) || !challenge) { setError('Selecciona empresa y gerencia, escribe un DNI válido y completa la verificación.'); return; }
+    if (!company || !/^\d{8}$/.test(dni) || !challenge) { setError('Selecciona la empresa, escribe un DNI válido y completa la verificación.'); return; }
     setBusy(true); setError(''); resetIdentity();
     try {
       const result = await publicOperationsApi<{ found: boolean; name?: string; nonce?: string }>(token, 'lookup', { dni, turnstileToken: challenge });
@@ -59,7 +59,6 @@ export function PublicOperationsRqView({ token }: { token: string }) {
       {!config.securityReady && <p className="rounded-lg bg-amber-50 p-3 text-sm">Este formulario aún no tiene la verificación de seguridad configurada.</p>}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm font-semibold">Empresa *<select required className={field} value={company} onChange={event => { setCompany(event.target.value); setGerenciaId(''); resetIdentity(); }}><option value="">Selecciona la empresa</option><option value={config.companyId}>{config.companyName}</option></select></label>
-        <label className="text-sm font-semibold">Gerencia *<select required disabled={!company} className={field} value={gerenciaId} onChange={event => { setGerenciaId(event.target.value); resetIdentity(); }}><option value="">Selecciona la gerencia</option>{config.gerencias.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label className="text-sm font-semibold">DNI del solicitante *<input className={field} inputMode="numeric" enterKeyHint="go" pattern="[0-9]{8}" maxLength={8} value={dni} onChange={event => { setDni(event.target.value.replace(/\D/g, '')); resetIdentity(); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (!busy && !nonce) void lookup(); } }} /></label>
         <label className="text-sm font-semibold">Nombre y apellido<input className={`${field} bg-slate-50`} readOnly value={name} placeholder="Se completará con el DNI" /></label>
       </div>
@@ -67,6 +66,7 @@ export function PublicOperationsRqView({ token }: { token: string }) {
       {nonce && <form onSubmit={submit} className="space-y-4 border-t pt-5">
         <p className="text-sm text-green-700">Identificado: {name}. Completa el requerimiento.</p>
         <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-sm font-semibold">Gerente *<select required className={field} value={gerenciaId} onChange={event => setGerenciaId(event.target.value)}><option value="">Selecciona un gerente</option>{config.gerencias.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label className="text-sm font-semibold">Tipo de RQ *<select required className={field} value={form.kind} onChange={event => setForm(current => ({ ...current, kind: event.target.value, companyCampaignId: '' }))}><option value="MASIVA">Campaña masiva</option><option value="STAFF">Puesto de staff</option></select></label>
           {form.kind === 'MASIVA' && <label className="text-sm font-semibold">Campaña *<select required className={field} value={form.companyCampaignId} onChange={event => setForm(current => ({ ...current, companyCampaignId: event.target.value }))}><option value="">Selecciona una campaña</option>{config.campaigns.filter(item => !item.id.endsWith(':staff-rq')).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
           <label className="text-sm font-semibold">Perfil requerido *<select required className={field} value={form.profileRequired} onChange={event => setForm(current => ({ ...current, profileRequired: event.target.value }))}><option value="">Selecciona un perfil</option>{['Teleoperador de Ventas', 'Live Commerce', 'Streaming'].map(value => <option key={value} value={value}>{value}</option>)}</select></label>

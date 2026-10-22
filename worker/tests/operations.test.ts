@@ -25,15 +25,17 @@ describe('RQ público de Operaciones', () => {
       ('konectados','rq-outsider','${outsider}','rq.outsider','Ajeno','81000003','FORMADOR','ACTIVO',false);`);
   }, 30000);
   afterAll(async () => { await db?.close(); });
-  it('exige gerencia, crea enlace por empresa y evita consultar DNI ajeno', async () => {
-    await expect(db.query('select public.talent_ops_link_create($1,$2,$3)', [admin, 'techcenter', tokenHash])).rejects.toThrow('GERENCIA_REQUIRED');
-    const g = await db.query<{ result: { id: string } }>('select public.talent_ops_gerencia_save($1,$2,$3) result', [admin, 'techcenter', 'Gerencia de Operaciones']);
-    gerenciaId = g.rows[0].result.id;
+  it('ofrece solo gerentes definidos por empresa y evita consultar DNI ajeno', async () => {
+    const g = await db.query<{ id: string }>("select id from talent_ops.gerencias where company_id='techcenter' and name='Manuel Vargas'");
+    gerenciaId = g.rows[0].id;
     const l = await db.query<{ result: { id: string } }>('select public.talent_ops_link_create($1,$2,$3) result', [admin, 'techcenter', tokenHash]);
     linkId = l.rows[0].result.id;
-    const config = await db.query<{ result: { companyId: string; gerencias: unknown[] } }>('select public.talent_ops_public_config($1) result', [tokenHash]);
+    await db.query("insert into talent_ops.gerencias(company_id,name) values('techcenter','Otra gerencia')");
+    const config = await db.query<{ result: { companyId: string; gerencias: { name: string }[] } }>('select public.talent_ops_public_config($1) result', [tokenHash]);
     expect(config.rows[0].result.companyId).toBe('techcenter');
-    expect(config.rows[0].result.gerencias).toHaveLength(1);
+    expect(config.rows[0].result.gerencias.map(item => item.name).sort()).toEqual(['Manuel Vargas', 'Jazmín Chavez (TI y Proyectos)', 'Efrain Pardo (Gerente General)', 'Danter Pardo (Director General)'].sort());
+    expect((await db.query<{ name: string }>("select name from talent_ops.gerencias where company_id='talent-up' and talent_ops.allowed_manager(company_id,name) order by name")).rows.map(item => item.name)).toContain('David Ramirez');
+    expect((await db.query<{ name: string }>("select name from talent_ops.gerencias where company_id='konectados' and talent_ops.allowed_manager(company_id,name) order by name")).rows.map(item => item.name)).toContain('Dennys Marin');
     const foreign = await db.query<{ result: { found: boolean } }>('select public.talent_ops_public_lookup($1,$2,$3) result', [tokenHash, '81000003', 'ip-a']);
     expect(foreign.rows[0].result.found).toBe(false);
     const missing = await db.query<{ result: { found: boolean } }>('select public.talent_ops_public_lookup($1,$2,$3) result', [tokenHash, '99999999', 'ip-a']);
@@ -50,6 +52,8 @@ describe('RQ público de Operaciones', () => {
     const found = await db.query<{ result: { found: boolean; name: string; nonce: string } }>('select public.talent_ops_public_lookup($1,$2,$3) result', [tokenHash, '81000002', 'ip-a']);
     expect(found.rows[0].result).toMatchObject({ found: true, name: 'Solicitante Real' });
     const data = { gerenciaId, dni: '81000002', kind: 'MASIVA', companyCampaignId: 'techcenter:bitel-portabilidad', profileRequired: 'Teleoperador de Ventas', fts: 10, salary: 1500, variableBonus: 250, mobilityBonus: 80, expectedStart: '2026-11-01', criticality: 'ALTA', schedule: 'Lunes a sábado', modality: 'PRESENCIAL', observations: 'Prueba' };
+    const other = await db.query<{ id: string }>("select id from talent_ops.gerencias where company_id='techcenter' and name='Otra gerencia'");
+    await expect(db.query('select public.talent_ops_public_submit($1,$2,$3,$4::jsonb)', [tokenHash, found.rows[0].result.nonce, 'ip-a', JSON.stringify({ ...data, gerenciaId: other.rows[0].id })])).rejects.toThrow('INVALID_GERENCIA');
     await expect(db.query('select public.talent_ops_public_submit($1,$2,$3,$4::jsonb)', [tokenHash, found.rows[0].result.nonce, 'ip-a', JSON.stringify({ ...data, profileRequired: 'Otro' })])).rejects.toThrow('INVALID_RQ_DETAILS');
     await expect(db.query('select public.talent_ops_public_submit($1,$2,$3,$4::jsonb)', [tokenHash, found.rows[0].result.nonce, 'ip-a', JSON.stringify({ ...data, modality: 'HIBRIDA' })])).rejects.toThrow('INVALID_RQ_DETAILS');
     await expect(db.query('select public.talent_ops_public_submit($1,$2,$3,$4::jsonb)', [tokenHash, found.rows[0].result.nonce, 'ip-a', JSON.stringify({ ...data, variableBonus: -1 })])).rejects.toThrow('INVALID_BONUS');

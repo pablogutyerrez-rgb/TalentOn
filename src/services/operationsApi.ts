@@ -15,7 +15,6 @@ export interface OperationsAdminData {
 }
 export const operationsApi = {
   admin: () => workerApi<OperationsAdminData>('/api/operations/admin'),
-  saveGerencia: (companyId: string, name: string) => workerApi('/api/operations/gerencias', { method: 'POST', body: JSON.stringify({ companyId, name }) }),
   createLink: (companyId: string) => workerApi<{ id: string; companyId: string; token: string; url: string }>('/api/operations/links', { method: 'POST', body: JSON.stringify({ companyId }) }),
   revokeLink: (id: string) => workerApi(`/api/operations/links/${id}/revoke`, { method: 'POST' }),
   requests: () => workerApi<OperationsRq[]>('/api/operations/requests'),

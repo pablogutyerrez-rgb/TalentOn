@@ -8,19 +8,21 @@ Migración `202610210001_operations_rq.sql` aplicada en Supabase el 21/10/2026. 
 2. Desplegar el Worker con `CAPTURE_HASH_SECRET`, `TURNSTILE_SECRET_KEY`, `TURNSTILE_SITE_KEY` y orígenes permitidos ya configurados. El desafío público usa la acción `operations`.
 3. Desplegar la interfaz. No generar enlaces hasta comprobar ambos despliegues.
 4. En Usuarios, completar el DNI de ocho dígitos de cada solicitante existente. Los nuevos usuarios requieren DNI; los anteriores siguen pudiendo iniciar sesión, pero no enviar RQ hasta completarlo.
-5. En Operaciones, cargar al menos una gerencia por empresa y generar el enlace. Copiarlo al momento: en la base solo se guarda su hash. Revocar desde el mismo panel cuando corresponda.
+5. En Operaciones, seleccionar la empresa y generar el enlace. Copiarlo al momento: en la base solo se guarda su hash. Revocar desde el mismo panel cuando corresponda.
 
-El enlace fija la empresa. El solicitante selecciona empresa y gerencia, introduce DNI y resuelve Turnstile; el nombre completo se toma de su perfil activo con acceso a esa empresa. No se pide validación por correo ni teléfono. **DNI + enlace no prueban identidad**: una persona que conozca ambos podría suplantar al solicitante. El límite de intentos, el enlace revocable, la verificación anti-bot y la vigencia corta de la consulta reducen abuso, pero no eliminan ese riesgo.
+El enlace fija la empresa. El solicitante introduce DNI y resuelve Turnstile; el nombre completo se toma de su perfil activo con acceso a esa empresa. Después elige un gerente en el formulario. No se pide validación por correo ni teléfono. **DNI + enlace no prueban identidad**: una persona que conozca ambos podría suplantar al solicitante. El límite de intentos, el enlace revocable, la verificación anti-bot y la vigencia corta de la consulta reducen abuso, pero no eliminan ese riesgo.
 
 Los RQ aparecen a Administrador, Jefe de Selección y Analistas de Selección con acceso a la empresa. La conversión abre el formulario de convocatoria existente. `sourceRqId` vincula el RQ con la nueva convocatoria en la misma transacción SQL; no se crea un segundo proceso de selección. Los RQ de staff usan el catálogo interno `staff-rq`, sin mostrar una campaña al solicitante.
 
 ## Perfiles de Operaciones
 
-La migración posterior `202610210002_operations_roles.sql`, aplicada el 21/10/2026, agrega el módulo `OPERACIONES` y los perfiles Jefe y Coordinador de Operaciones. Administrador conserva su acceso. Ambos perfiles ven los RQ, configuran gerencias y administran enlaces únicamente en sus empresas autorizadas. No reciben campañas ni módulos de Selección, Formación, Talento, Analítica o Administración; la vinculación con convocatorias continúa reservada a Selección. Las cuentas y empresas se asignan desde Usuarios; la migración no crea cuentas ficticias.
+La migración posterior `202610210002_operations_roles.sql`, aplicada el 21/10/2026, agrega el módulo `OPERACIONES` y los perfiles Jefe y Coordinador de Operaciones. Administrador conserva su acceso. Ambos perfiles ven los RQ y administran enlaces únicamente en sus empresas autorizadas. No reciben campañas ni módulos de Selección, Formación, Talento, Analítica o Administración; la vinculación con convocatorias continúa reservada a Selección. Las cuentas y empresas se asignan desde Usuarios; la migración no crea cuentas ficticias.
 
 `202610210003_operations_lookup_pending_password.sql` corrige el lookup público: una contraseña pendiente de cambio ya no oculta un perfil activo con acceso a la empresa. No modifica la exigencia de cambiar la contraseña al iniciar sesión. Se verificó contra un enlace activo de Talent Up dentro de una transacción revertida, sin crear RQ ni conservar intentos de prueba.
 
 `202610210004_operations_rq_form.sql` agrega bono variable, bono de movilidad y modalidad al RQ. El formulario identifica el DNI al pulsar Enter, ofrece solo Teleoperador de Ventas, Live Commerce o Streaming, y permite modalidad Presencial o Remota. El servidor valida las opciones y ambos bonos. La ubicación antigua se conserva en los RQ históricos; los nuevos no la solicitan. Al convertir el RQ, los bonos y la modalidad se precargan en la convocatoria, y la sede queda «Por definir» si el RQ no tenía ubicación.
+
+`202610220001_operations_manager_catalog.sql` fija los gerentes por empresa: David Ramirez (Talent Up), Manuel Vargas (Techcenter) y Dennys Marin (Konectados), más Jazmín Chavez (TI y Proyectos), Efrain Pardo (Gerente General) y Danter Pardo (Director General) en las tres. El panel ya no permite dar de alta gerencias: el gerente se selecciona dentro del RQ después de identificar el DNI. Los RQ históricos conservan su referencia original.
 
 ## Verificación realizada
 
@@ -28,4 +30,4 @@ La migración posterior `202610210002_operations_roles.sql`, aplicada el 21/10/2
 - `npm run check` y `npm test -- --maxWorkers=1` en `worker`.
 - Pruebas SQL aisladas: alcance por empresa, lookup de DNI, envío idempotente, revocación de enlace y vínculo atómico con convocatoria.
 
-La migración remota se aplicó atómicamente tras verificar TLS, proyecto y respaldo con restauración aislada. El Worker se desplegó y las pruebas locales pasaron (150/150). La activación de enlaces sigue requiriendo cargar DNI y gerencias reales.
+Las migraciones remotas se aplicaron atómicamente tras verificar TLS, proyecto y respaldo con restauración aislada. El Worker se desplegó y las pruebas locales pasaron (152/152). Para usar un enlace público, el solicitante necesita DNI registrado y acceso a la empresa.

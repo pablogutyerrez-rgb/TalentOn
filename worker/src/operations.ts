@@ -61,10 +61,6 @@ export async function handleOperations(request: Request, env: Env): Promise<Resp
     const actor = await relationalSession(request, env);
     if (path === '/api/operations/admin' && request.method === 'GET') return reply(await rpc(env, 'talent_ops_admin', { p_actor: actor.authUserId }));
     if (path === '/api/operations/requests' && request.method === 'GET') return reply(await rpc(env, 'talent_ops_selection', { p_actor: actor.authUserId }));
-    if (path === '/api/operations/gerencias' && request.method === 'POST') {
-      const data = await input(request);
-      return reply(await rpc(env, 'talent_ops_gerencia_save', { p_actor: actor.authUserId, p_company: data.companyId, p_name: data.name }), 201);
-    }
     if (path === '/api/operations/links' && request.method === 'POST') {
       const data = await input(request);
       const token = Array.from(crypto.getRandomValues(new Uint8Array(24))).map(byte => byte.toString(16).padStart(2, '0')).join('');
