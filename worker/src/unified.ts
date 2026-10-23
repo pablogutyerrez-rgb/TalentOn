@@ -5,7 +5,7 @@ import {candidateKey,readCandidateKey,candidateReferences,unqualifyCandidates} f
 type Dispatch=(request:Request,env:Env)=>Promise<Response>;
 async function rpc(env:Env,name:string,body:object){
  const r=await fetch(env.SUPABASE_URL!.replace(/\/$/,'')+'/rest/v1/rpc/'+name,{method:'POST',headers:supabaseServerHeaders(env),body:JSON.stringify(body)});
- if(!r.ok){const e=await r.json<{code?:string}>().catch(()=>({code:''}));throw new SupabaseError(e.code==='PT409'?409:e.code==='42501'?403:502,e.code==='PT409'?'COMPANY_CONTEXT_AMBIGUOUS':e.code==='42501'?'FORBIDDEN':'UNIFIED_READ_FAILED');}return r.json<any>();
+ if(!r.ok){const e=await r.json<{code?:string}>().catch(()=>({code:''}));throw new SupabaseError(e.code==='PT409'?409:e.code==='42501'?403:502,e.code==='PT409'?'COMPANY_CONTEXT_AMBIGUOUS':e.code==='42501'?'FORBIDDEN':name==='talent_org_record_company'?'COMPANY_LOOKUP_FAILED':'UNIFIED_READ_FAILED');}return r.json<any>();
 }
 export async function unifiedRequest(request:Request,env:Env,dispatch:Dispatch):Promise<Response>{
  const url=new URL(request.url);url.searchParams.delete('unified');

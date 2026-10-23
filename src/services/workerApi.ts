@@ -24,6 +24,7 @@ const WORKER_ERROR_MESSAGES: Record<string, string> = {
   RQ_ALREADY_LINKED: 'Este RQ ya se convirtió en una convocatoria.',
   COMPANY_REQUIRED: 'Selecciona la empresa a la que pertenece el registro.',
   COMPANY_CONTEXT_AMBIGUOUS: 'Este identificador existe en varias empresas. No se modificó ningún registro; solicita revisar su identificación.',
+  COMPANY_LOOKUP_FAILED: 'No se pudo identificar la empresa del enlace. No se eliminó; actualiza la página e inténtalo nuevamente.',
   UNIFIED_READ_FAILED: 'No se pudo cargar la vista conjunta. Intenta actualizar; no se muestran resultados parciales.',
   'Worker API no está configurada o no existe sesión.': 'El servicio administrativo no está configurado o tu sesión venció.',
   WORKER_NETWORK_UNREACHABLE: 'No se pudo conectar con el servicio. Verifica tu conexión e inténtalo nuevamente.',
