@@ -11,8 +11,8 @@ export const captureApi = {
   links: () => workerApi<{ items: CaptureLink[]; truncated: boolean }>('/api/capture/links'),
   inbox: () => workerApi<{ items: CaptureEvent[]; truncated: boolean }>('/api/capture/inbox'),
   create: (source: string,companyCampaignId?:string,companyId?:string) => workerApi('/api/capture/links', { method: 'POST', body: JSON.stringify({ source,companyCampaignId,companyId }) }),
-  toggle: (id: string, active: boolean) => workerApi(`/api/capture/links/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) }),
-  remove: (id: string) => workerApi(`/api/capture/links/${id}`, { method: 'DELETE' }),
+  toggle: (id: string, active: boolean, companyId: string) => workerApi(`/api/capture/links/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ active }) }, companyId),
+  remove: (id: string, companyId: string) => workerApi(`/api/capture/links/${encodeURIComponent(id)}`, { method: 'DELETE' }, companyId),
   manage: (id: string, status: string, note: string) => workerApi(`/api/capture/events/${id}`, { method: 'PATCH', body: JSON.stringify({ status, note }) }),
   dossier: (id: string) => workerApi<CaptureDossier>(`/api/capture/candidates/${encodeURIComponent(id)}`),
 };

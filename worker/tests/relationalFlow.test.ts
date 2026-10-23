@@ -391,6 +391,13 @@ describe('Transición relacional PostgreSQL 17',()=>{
    const unified=await call('/api/bootstrap?unified=1','GET',undefined,uid);
    expect(unified.status).toBe(200);
    expect(unified.data.campaigns.map((item:any)=>item.id)).toEqual([assigned.data.id]);
+   const link=await call('/api/capture/links','POST',{source:'Facebook',companyCampaignId:catalog},uid,company);
+   expect(link.status).toBe(201);
+   expect((await call('/api/capture/links/'+link.data.id,'DELETE',undefined,uid,'tenant')).status).not.toBe(200);
+   expect((await call('/api/capture/links/'+link.data.id,'PATCH',{active:false},uid,company)).status).toBe(200);
+   expect((await call('/api/capture/links/'+link.data.id,'DELETE',undefined,uid,company)).status).toBe(200);
+   expect((await call('/api/capture/links','GET',undefined,uid,company)).data.items.find((item:any)=>item.id===link.data.id)).toBeUndefined();
+   expect((await db.query('select active,archived_at from talent.capture_links where company_id=$1 and id=$2',[company,link.data.id])).rows[0]).toMatchObject({active:false,archived_at:expect.any(Date)});
   }finally{env.ORG_ENABLED=undefined;}
  });
  it('repara administrador multiempresa: Talent-On, creación, edición y permisos sin elevar otros roles',async()=>{

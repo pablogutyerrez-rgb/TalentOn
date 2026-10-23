@@ -91,13 +91,13 @@ export function getWorkerErrorMessage(error: unknown, fallback = 'No se pudo com
   return raw;
 }
 
-export async function workerApi<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function workerApi<T>(path: string, init: RequestInit = {}, companyId?: string): Promise<T> {
   const token = await authenticatedToken();
   let response: Response;
   try {
-    response = await fetch(unifiedUrl(path), {
+    response = await fetch(companyId ? `${baseUrl}${path}` : unifiedUrl(path), {
       ...init,
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...init.headers },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...init.headers, ...(companyId ? { 'X-Talent-Company': companyId } : {}) },
     });
   } catch {
     console.error(`[Worker API] ${init.method ?? 'GET'} ${path} network failure from ${window.location.origin}`);
