@@ -142,6 +142,7 @@ export function effectiveQuestions(form:CaptureForm,config:CaptureCampaignConfig
     if(q.id==='age'){out.min=config.minAge;out.max=config.maxAge??120;out.hint=config.maxAge==null?'Edad mínima: '+config.minAge+' años.':'Rango permitido: '+config.minAge+'–'+config.maxAge+' años.';}
     const options=q.id==='workday'?config.workdays:q.id==='availability'?config.schedules:q.id==='modality'?[config.modality]:undefined;
     if(options)out.options=options.map(v=>({value:v,label:['workday','modality'].includes(q.id)?v.toUpperCase():v}));
+    if(q.id==='availability')out.type='select';
     if(q.id==='preferredCampaign')out.options=[{value:campaign.id,label:campaign.name}];
     return out;
   });

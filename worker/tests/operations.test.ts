@@ -34,8 +34,9 @@ describe('RQ público de Operaciones', () => {
     const config = await db.query<{ result: { companyId: string; gerencias: { name: string }[] } }>('select public.talent_ops_public_config($1) result', [tokenHash]);
     expect(config.rows[0].result.companyId).toBe('techcenter');
     expect(config.rows[0].result.gerencias.map(item => item.name).sort()).toEqual(['Manuel Vargas', 'Jazmín Chavez (TI y Proyectos)', 'Efrain Pardo (Gerente General)', 'Danter Pardo (Director General)'].sort());
-    expect((await db.query<{ name: string }>("select name from talent_ops.gerencias where company_id='talent-up' and talent_ops.allowed_manager(company_id,name) order by name")).rows.map(item => item.name)).toContain('David Ramirez');
-    expect((await db.query<{ name: string }>("select name from talent_ops.gerencias where company_id='konectados' and talent_ops.allowed_manager(company_id,name) order by name")).rows.map(item => item.name)).toContain('Dennys Marin');
+    const shared = ['Jazmín Chavez (TI y Proyectos)', 'Efrain Pardo (Gerente General)', 'Danter Pardo (Director General)'];
+    expect((await db.query<{ name: string }>("select name from talent_ops.gerencias where company_id='talent-up' and talent_ops.allowed_manager(company_id,name) order by name")).rows.map(item => item.name).sort()).toEqual(['David Ramirez', ...shared].sort());
+    expect((await db.query<{ name: string }>("select name from talent_ops.gerencias where company_id='konectados' and talent_ops.allowed_manager(company_id,name) order by name")).rows.map(item => item.name).sort()).toEqual(['Dennys Marin', ...shared].sort());
     const foreign = await db.query<{ result: { found: boolean } }>('select public.talent_ops_public_lookup($1,$2,$3) result', [tokenHash, '81000003', 'ip-a']);
     expect(foreign.rows[0].result.found).toBe(false);
     const missing = await db.query<{ result: { found: boolean } }>('select public.talent_ops_public_lookup($1,$2,$3) result', [tokenHash, '99999999', 'ip-a']);

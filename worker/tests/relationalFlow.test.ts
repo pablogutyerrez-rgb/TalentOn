@@ -14,8 +14,8 @@ const other='40000000-0000-4000-8000-000000000003';
 let db:any,campaignId:string,personId:string,groupId:string;
 let failNextCaptureCommit=false;
 const objects=new Map<string,Uint8Array>();
-const registrationAnswers={age:'25',contactCenterExperience:'No',workedAtTechCenter:'No',education:'Secundaria completa',workday:'Full time',availability:'Tarde',commitments:'No',modality:'Presencial',privacyAcknowledged:true};
-const captureConfiguration={minAge:18,maxAge:null,workdays:['Full time','Semi full'],schedules:['Tarde'],modality:'Presencial'};
+const registrationAnswers={age:'25',contactCenterExperience:'No',workedAtTechCenter:'No',education:'Secundaria completa',workday:'Full time',availability:'Turno tarde',commitments:'No',modality:'Presencial',privacyAcknowledged:true};
+const captureConfiguration={minAge:18,maxAge:null,workdays:['Full time','Semi full'],schedules:['Turno mañana','Turno tarde'],modality:'Presencial'};
 const authUsers=new Map<string,any>();
 const env={DATA_PROVIDER:'supabase',SUPABASE_URL:'https://sql-test.supabase.co',SUPABASE_SECRET_KEY:'sb_secret_test',ALLOWED_ORIGIN:'http://localhost:3000',PRODUCTION_ORIGIN:'https://example.test',MAX_UPLOAD_BYTES:'10485760',ATTENDANCE_TIME_ZONE_OFFSET:'-05:00',CAPTURE_HASH_SECRET:'test-only-key',DOCUMENTS:{put:async(k:string,v:any)=>{objects.set(k,new Uint8Array(await new Response(v).arrayBuffer()))},get:async(k:string)=>objects.has(k)?{body:objects.get(k),httpMetadata:{contentType:'application/pdf'}}:null,delete:async(k:string)=>{objects.delete(k)}}} as unknown as Env;
 async function call(path:string,method='GET',body?:any,actor=admin,company?:string){
@@ -209,7 +209,7 @@ describe('Transición relacional PostgreSQL 17',()=>{
  it('configuración de captación: actualización versionada, validación SQL y acceso solo desde servidor',async()=>{
   env.ORG_ENABLED='true';
   try {
-   const configuration={...captureConfiguration,maxAge:65,workdays:['Part time'],schedules:['09:00–13:00'],modality:'Remota'};
+   const configuration={...captureConfiguration,maxAge:65,workdays:['Part time'],modality:'Remota'};
    const saved=await call('/api/org/capture-settings','POST',{companyId:'tenant',id:campaignId,version:1,configuration});
    expect(saved.status).toBe(200);expect(saved.data.version).toBe(2);
    expect((await call('/api/org/capture-settings','POST',{companyId:'tenant',id:campaignId,version:1,configuration})).status).toBe(409);
@@ -276,7 +276,7 @@ describe('Transición relacional PostgreSQL 17',()=>{
    expect(privileges).toEqual({anon:false,authenticated:false});
    expect((await pub({fullName:'Incomplete',formId:'capture-v1'})).status).toBe(400);
    const answers=Object.fromEntries(techCenterSections.flatMap(s=>s.fields).filter(f=>f.options).map(f=>[f.key,optionValue(f.options![0])]));
-   const applicant={...answers,age:'25',experienceMonths:'12',availability:'Tarde',preferredCampaign:'techcenter:bitel-portabilidad',documentNumber:'99900999',fullName:'CI Techcenter',district:'Lima, Comas',phone:'912345679',email:'tech@example.test',experienceDetails:'Un año en ventas',adjustmentDetails:'Acceso sin escaleras',privacyAcknowledged:true,requestId:crypto.randomUUID(),turnstileToken:'test-only-token'};
+   const applicant={...answers,age:'25',experienceMonths:'12',availability:'Turno tarde',preferredCampaign:'techcenter:bitel-portabilidad',documentNumber:'99900999',fullName:'CI Techcenter',district:'Lima, Comas',phone:'912345679',email:'tech@example.test',experienceDetails:'Un año en ventas',adjustmentDetails:'Acceso sin escaleras',privacyAcknowledged:true,requestId:crypto.randomUUID(),turnstileToken:'test-only-token'};
    expect((await pub({...applicant,preferredCampaign:'talent-up:bitel-portabilidad',companyId:'talent-up',companyName:'Otra empresa'})).status).toBe(400);
    expect((await pub(applicant)).status).toBe(201);
    expect((await pub(applicant)).status).toBe(201);

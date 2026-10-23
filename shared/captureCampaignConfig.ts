@@ -1,4 +1,5 @@
 export const captureWorkdays = ['Full time', 'Semi full', 'Part time'] as const;
+export const captureShifts = ['Turno mañana', 'Turno tarde'] as const;
 export type CaptureCampaignConfig = {
   minAge: number;
   maxAge: number | null;
@@ -17,15 +18,20 @@ export function validateCaptureCampaignConfig(raw: unknown): CaptureCampaignConf
   if (!Array.isArray(v.workdays) || !v.workdays.length || v.workdays.length > 3 ||
       v.workdays.some(x => !captureWorkdays.includes(x)) || new Set(v.workdays).size !== v.workdays.length)
     throw new Error('Selecciona las jornadas que ofrece la campaña.');
-  if (!Array.isArray(v.schedules) || !v.schedules.length || v.schedules.length > 20 ||
-      v.schedules.some(x => typeof x !== 'string' || !x.trim() || x.trim().length > 160))
-    throw new Error('Indica los horarios de la campaña (uno por línea, máximo 20).');
-  const schedules = v.schedules.map(x => String(x).normalize('NFKC').trim());
-  if (new Set(schedules).size !== schedules.length) throw new Error('Los horarios no deben repetirse.');
+  if (!Array.isArray(v.schedules) || v.schedules.length !== captureShifts.length ||
+      v.schedules.some((x, i) => x !== captureShifts[i]))
+    throw new Error('Solo se permiten Turno mañana y Turno tarde.');
   if (v.modality !== 'Presencial' && v.modality !== 'Remota') throw new Error('Selecciona presencial o remota.');
   return {minAge: Number(v.minAge), maxAge: v.maxAge === null ? null : Number(v.maxAge),
-    workdays: [...v.workdays], schedules, modality: v.modality};
+    workdays: [...v.workdays], schedules: [...captureShifts], modality: v.modality};
 }
 export function captureConfig(raw: unknown): CaptureCampaignConfig | undefined {
-  try { return validateCaptureCampaignConfig(raw); } catch { return undefined; }
+  try {
+    // Read old published schedules without changing stored configuration or historical answers.
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+    const legacy = raw as Record<string, unknown>;
+    if (!Array.isArray(legacy.schedules) || !legacy.schedules.length ||
+        legacy.schedules.some(x => typeof x !== 'string' || !x.trim())) return undefined;
+    return validateCaptureCampaignConfig({...legacy, schedules: [...captureShifts]});
+  } catch { return undefined; }
 }

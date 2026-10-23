@@ -1,7 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {defaultCaptureForm,validateCaptureForm,validateFormAnswers,effectiveQuestions,visibleQuestions,sensitiveQuestionIds,type FormQuestion} from '../../shared/captureFormSchema';
 import {verifyCaptureFile,readCaptureSubmission} from '../src/captureAttachments';
-const configuration={minAge:18,maxAge:60,workdays:['Full time'],schedules:['09:00–18:00'],modality:'Presencial' as const};
+const configuration={minAge:18,maxAge:60,workdays:['Full time'],schedules:['Turno mañana','Turno tarde'],modality:'Presencial' as const};
 const custom=(type:FormQuestion['type'],extra:Partial<FormQuestion>={}):FormQuestion=>({id:'custom',label:'Pregunta',section:'Extra',type,required:true,...extra});
 describe('Editor de formularios',()=>{
  it('la plantilla conserva el orden solicitado, condiciones y campos del sistema',()=>{
@@ -12,6 +12,7 @@ describe('Editor de formularios',()=>{
   expect(q.find(q=>q.id==='preferredCampaign')?.options).toEqual([{value:'campaign',label:'Campaña'}]);
   expect(q.find(q=>q.id==='age')).toMatchObject({min:18,max:60});
   expect(q.find(q=>q.id==='workday')?.options).toEqual([{value:'Full time',label:'FULL TIME'}]);
+  expect(q.find(q=>q.id==='availability')?.options?.map(o=>o.value)).toEqual(['Turno mañana','Turno tarde']);
   expect(visibleQuestions(q,{modality:'Presencial'}).some(q=>q.id==='computer')).toBe(false);
   expect(visibleQuestions(q,{contactCenterExperience:'No',disability:'No'}).some(q=>q.id==='disabilityDetails')).toBe(false);
   expect(sensitiveQuestionIds.every(id=>f.questions.find(q=>q.id===id)?.required===false)).toBe(true);

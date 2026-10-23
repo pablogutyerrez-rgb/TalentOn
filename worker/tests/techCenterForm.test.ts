@@ -2,14 +2,14 @@ import {describe,it,expect} from 'vitest';
 import {captureInput} from '../src/capture';
 import {techCenterSections,visibleTechCenterFields,companySections,companyText} from '../../shared/techCenterForm';
 import {changeCaptureAnswer} from '../../shared/techCenterForm';
-import {validateCaptureCampaignConfig, type CaptureCampaignConfig} from '../../shared/captureCampaignConfig';
-const config:CaptureCampaignConfig={minAge:18,maxAge:60,workdays:['Full time','Semi full'],schedules:['Tarde'],modality:'Presencial'};
+import {captureConfig,validateCaptureCampaignConfig, type CaptureCampaignConfig} from '../../shared/captureCampaignConfig';
+const config:CaptureCampaignConfig={minAge:18,maxAge:60,workdays:['Full time','Semi full'],schedules:['Turno mañana','Turno tarde'],modality:'Presencial'};
 
 export const techApplicant = {
  documentType:'DNI',documentNumber:'99900123',fullName:'Postulante de Prueba',
  age:'25',district:'Lima, Comas',phone:'912345678',email:'fixture@example.test',
  contactCenterExperience:'No',workedAtTechCenter:'No',education:'Secundaria completa',
- preferredCampaign:'Migraciones Bitel',workday:'Semi full',availability:'Tarde',
+ preferredCampaign:'Migraciones Bitel',workday:'Semi full',availability:'Turno tarde',
  commitments:'No',modality:'Presencial',privacyAcknowledged:true,
 };
 describe('Formulario TECH CENTER',()=>{
@@ -55,7 +55,7 @@ describe('Formulario TECH CENTER',()=>{
  it('valida edad, jornada, horarios y modalidad del catálogo; no acepta configuración del navegador',()=>{
   const campaigns=[{id:'a',name:'A',configuration:config}];
   const values={...techApplicant,preferredCampaign:'a'};
-  for(const override of [{age:'17'},{age:'61'},{age:'25.5'},{workday:'Part time'},{availability:'Mañana'},{modality:'Remota'},{modality:'Ambas modalidades'}])
+  for(const override of [{age:'17'},{age:'61'},{age:'25.5'},{workday:'Part time'},{availability:'Noche'},{modality:'Remota'},{modality:'Ambas modalidades'}])
    expect(()=>captureInput({...values,...override,configuration:{...config,workdays:['Part time']}},true,campaigns)).toThrow();
   for(const age of ['18','60'])expect(()=>captureInput({...values,age},true,campaigns)).not.toThrow();
   expect(()=>captureInput(values,true,[{id:'a',name:'A'}])).toThrow();
@@ -77,7 +77,8 @@ describe('Formulario TECH CENTER',()=>{
  });
  it('valida configuración administrativa sin valores por defecto',()=>{
   expect(validateCaptureCampaignConfig(config)).toEqual(config);
-  for(const invalid of [{},{...config,minAge:60,maxAge:18},{...config,workdays:[]},{...config,schedules:[]},{...config,schedules:['Tarde','Tarde']},{...config,modality:'Ambas modalidades'},{...config,minAge:18.5},{...config,workdays:['Full time','Full time']}])
+  expect(captureConfig({...config,schedules:['09:00–18:00']})?.schedules).toEqual(['Turno mañana','Turno tarde']);
+  for(const invalid of [{},{...config,minAge:60,maxAge:18},{...config,workdays:[]},{...config,schedules:[]},{...config,schedules:['Turno tarde','Turno tarde']},{...config,schedules:['09:00–18:00']},{...config,modality:'Ambas modalidades'},{...config,minAge:18.5},{...config,workdays:['Full time','Full time']}])
    expect(()=>validateCaptureCampaignConfig(invalid)).toThrow();
  });
  it('rechaza opciones inventadas y texto excesivo; no cambia el formulario genérico',()=>{

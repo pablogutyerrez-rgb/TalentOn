@@ -1,6 +1,6 @@
 export const TECH_CENTER_FORM = 'techcenter-v1';
 export const COMPANY_CAPTURE_FORM = 'company-capture-v1';
-import {captureConfig, type CaptureCampaignConfig} from './captureCampaignConfig';
+import {captureConfig, captureShifts, type CaptureCampaignConfig} from './captureCampaignConfig';
 export type CaptureCampaignOption = { id: string; name: string; configuration?: CaptureCampaignConfig | null; form?:import('./captureFormSchema').CaptureForm|null; formRevision?:number|null };
 export const companyText = (text: string, name: string) => text.replaceAll('TECH CENTER', name);
 export const techCenterIntro = [
@@ -37,7 +37,7 @@ export const techCenterSections: { title: string; hint?: string; when?: TechCent
   { title: '3. POSTULACIÓN Y DISPONIBILIDAD', fields: [
     { key: 'preferredCampaign', label: '13. ¿A qué campaña deseas postular?', required: true, options: ['Retenciones Bitel','Migraciones Bitel','Portabilidad Bitel','Win Outbound','Portabilidad Costa Rica','Finetwork','Prosegur','Carsa Préstamos','Impulsadores','Portabilidad Movistar','Cobranzas Bitel'] },
     { key: 'workday', label: '14. ¿Qué jornada laboral se ajusta a tu disponibilidad?', required: true, options: ['Full time','Semi full','Part time'] },
-    { key: 'availability', label: '15. ¿En qué horarios tienes disponibilidad para trabajar?', required: true, options: ['Mañana','Tarde','Noche','Horario rotativo','Otro'] },
+    { key: 'availability', label: '15. ¿En qué turno tienes disponibilidad para trabajar?', required: true, options: captureShifts },
     { key: 'commitments', label: '16. ¿Actualmente tienes compromisos laborales o académicos que podrían coincidir con el horario de trabajo?', required: true, options: ['No','Sí (indicar disponibilidad)'] },
     { key: 'commitmentsDetails', label: 'Indica tu disponibilidad', required: true, type: 'textarea', max: 1000, when: v => v.commitments === 'Sí (indicar disponibilidad)' },
     { key: 'modality', label: '17. Modalidad de trabajo de la campaña', required: true, options: ['Presencial','Remota'] },
@@ -76,7 +76,7 @@ export function companySections(companyName: string, campaigns: CaptureCampaignO
     ...(field.key==='preferredCampaign'?{options:campaigns.map(c=>({value:c.id,label:c.name})),max:240}:{}),
     ...(field.key==='age'?{minValue:config?.minAge ?? 0,maxValue:config?.maxAge ?? 120,hint:config ? (config.maxAge===null ? 'Edad mínima: '+config.minAge+' años.' : 'Rango de edad: '+config.minAge+' a '+config.maxAge+' años.') : 'Selecciona una campaña para consultar el rango de edad.'}:{}),
     ...(field.key==='workday'?{options:config?.workdays || [],hint:'Opciones ofrecidas por la campaña seleccionada.'}:{}),
-    ...(field.key==='availability'?{options:config?.schedules || [],hint:'Horarios ofrecidos por la campaña seleccionada.'}:{}),
+    ...(field.key==='availability'?{options:config?.schedules || [],hint:'Turnos disponibles: mañana y tarde.'}:{}),
     ...(field.key==='modality'?{options:config ? [config.modality] : []}:{}),
   }))}));
 }

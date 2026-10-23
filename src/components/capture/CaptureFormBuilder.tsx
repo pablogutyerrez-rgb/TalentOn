@@ -1,6 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {workerApi,getWorkerErrorMessage} from '../../services/workerApi';
-import {captureWorkdays,type CaptureCampaignConfig} from '../../../shared/captureCampaignConfig';
+import {captureWorkdays,captureShifts,type CaptureCampaignConfig} from '../../../shared/captureCampaignConfig';
 import {defaultCaptureForm,validateFormBundle,effectiveQuestions,type CaptureForm,type CaptureFormBundle,type FormAnswers} from '../../../shared/captureFormSchema';
 import {CaptureQuestionEditor} from './CaptureQuestionEditor';
 import {CaptureFormFields} from './CaptureFormFields';
@@ -27,12 +27,12 @@ function FormEditor({campaign,onSaved,onDirty}:{key?:string;campaign:Campaign;on
   const config=initial?.configuration||campaign.configuration;
   const [form,setForm]=useState<CaptureForm>(()=>initial?.form||defaultCaptureForm());
   const [min,setMin]=useState(config?String(config.minAge):''),[max,setMax]=useState(config?.maxAge==null?'':String(config.maxAge));
-  const [days,setDays]=useState<string[]>(config?.workdays||[]),[schedules,setSchedules]=useState(config?.schedules.join('\n')||''),[modality,setModality]=useState(config?.modality||'');
+  const [days,setDays]=useState<string[]>(config?.workdays||[]),[modality,setModality]=useState(config?.modality||'');
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[preview,setPreview]=useState<CaptureFormBundle|null>(null),[previewValues,setPreviewValues]=useState<FormAnswers>({});
   const control='mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm';
   const [step,setStep]=useState(0);
   const go=(next:number)=>{setError('');if(next===2){try{const draft=bundle();setPreview(draft);setPreviewValues({preferredCampaign:campaign.id,modality:draft.configuration.modality});}catch(e){setError(getWorkerErrorMessage(e));return;}}setStep(next);};
-  const bundle=()=>{if(!min.trim())throw new Error('Indica la edad mínima de la campaña.');return validateFormBundle({form,configuration:{minAge:Number(min),maxAge:max.trim()?Number(max):null,workdays:days,schedules:schedules.split('\n').map(v=>v.trim()).filter(Boolean),modality}});};
+  const bundle=()=>{if(!min.trim())throw new Error('Indica la edad mínima de la campaña.');return validateFormBundle({form,configuration:{minAge:Number(min),maxAge:max.trim()?Number(max):null,workdays:days,schedules:[...captureShifts],modality}});};
   const save=async(publish:boolean)=>{
     setError('');setNotice('');
     try{
@@ -56,7 +56,7 @@ function FormEditor({campaign,onSaved,onDirty}:{key?:string;campaign:Campaign;on
         <label className="text-sm">Edad máxima (vacío: sin límite superior)<input className={control} type="number" min={min||'0'} max="120" step="1" value={max} onChange={e=>setMax(e.target.value)}/></label>
       </div>
       <div className="text-sm"><p>Jornadas ofrecidas (*)</p><div className="mt-2 flex flex-wrap gap-4">{captureWorkdays.map(day=><label key={day}><input type="checkbox" checked={days.includes(day)} onChange={e=>setDays(previous=>e.target.checked?[...previous,day]:previous.filter(d=>d!==day))}/> {day}</label>)}</div></div>
-      <label className="block text-sm">Horarios ofrecidos (uno por línea) (*)<textarea className={control} rows={3} value={schedules} onChange={e=>setSchedules(e.target.value)}/></label>
+      <p className="text-sm">Turnos disponibles: <strong>Turno mañana</strong> y <strong>Turno tarde</strong>. No se crean horarios adicionales.</p>
       <label className="block text-sm">Modalidad (*)<select className={control} value={modality} onChange={e=>setModality(e.target.value)}><option value="">Selecciona modalidad</option><option>Presencial</option><option>Remota</option></select></label>
       <div className="border-t pt-4">
         <h2 className="font-semibold">Presentación del formulario</h2>
