@@ -104,7 +104,6 @@ export function PublicCaptureView({ token }: { token: string }) {
 
   return <main className="talent-app min-h-screen bg-[#f3f7fa] px-4 py-6 text-[#143A56] sm:px-6 sm:py-10">
     <div className="mx-auto max-w-6xl">
-      <div className="mb-6 flex items-center justify-between"><img src="/talent-on-logo.png" alt="Talent-On" className="h-auto w-40 object-contain sm:w-48" /><span className="hidden text-sm text-slate-500 sm:block">Formulario de postulación</span></div>
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_50px_-30px_rgba(20,58,86,.35)]">
         <header className="grid gap-6 border-b border-slate-200 p-5 sm:p-8 lg:grid-cols-[minmax(240px,1fr)_minmax(0,1.7fr)] lg:gap-10">
           <div className="flex flex-col items-start gap-2 lg:border-r lg:border-slate-200 lg:pr-8"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Empresa contratante</p>{companyLogo?<CompanyLogo companyName={companyName} />:<div className="flex items-center gap-3"><span aria-hidden="true" className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-[#143A56]"><Building2 className="h-7 w-7" /></span><p className="text-xl font-bold">{companyName||'Cargando empresa…'}</p></div>}</div>
