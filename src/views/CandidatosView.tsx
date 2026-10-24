@@ -162,7 +162,7 @@ export const CandidatosView: React.FC = () => {
 
                       {/* Convocatoria */}
                       <td className="max-w-[190px] px-3 py-3">
-                        <div className="text-2xs font-bold text-sky-700">{cand.campaignCode || campaign?.code || 'Sin código'}</div><div className="mt-0.5 truncate font-semibold text-slate-900" title={cand.campaignName}>{cand.campaignName || campaign?.title || 'Sin convocatoria'}</div><div className="mt-0.5 truncate text-2xs text-slate-500">{campaign?.company || campaign?.client || 'Sin empresa'} · {campaign?.location || 'Sin sede'}</div>
+                        <div className="text-2xs font-bold text-sky-700">{cand.captureOnly ? 'Captación' : cand.campaignCode || campaign?.code || 'Sin código'}</div><div className="mt-0.5 truncate font-semibold text-slate-900" title={cand.campaignName}>{cand.captureOnly ? 'Pendiente de vincular' : cand.campaignName || campaign?.title || 'Sin convocatoria'}</div><div className="mt-0.5 truncate text-2xs text-slate-500">{campaign?.company || campaign?.client || 'Sin empresa'} · {campaign?.location || 'Sin sede'}</div>
                       </td>
 
                       {/* Selector */}
@@ -173,16 +173,17 @@ export const CandidatosView: React.FC = () => {
 
                       {/* Etapa Actual */}
                       <td className="py-3 px-3">
-                        {getStageBadge(cand.selection?.stage)}
+                        {cand.captureOnly ? <span className="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-2xs font-semibold text-sky-800">Captación</span> : getStageBadge(cand.selection?.stage)}
                       </td>
 
                       {/* Estado */}
                       <td className="py-3 px-3">
                         <span className={`inline-flex rounded-full px-2.5 py-1 text-2xs font-semibold ${
+                          cand.captureOnly ? 'bg-amber-50 text-amber-800 border border-amber-200' :
                           isDiscarded ? 'bg-rose-100 text-rose-800 border border-rose-200' :
                           'bg-emerald-50 text-emerald-700'
                         }`}>
-                          {isDiscarded ? 'Descartado' : isApto ? 'Activo' : 'Activo'}
+                          {cand.captureOnly ? 'Pendiente de vincular' : isDiscarded ? 'Descartado' : isApto ? 'Activo' : 'Activo'}
                         </span>
                       </td>
 

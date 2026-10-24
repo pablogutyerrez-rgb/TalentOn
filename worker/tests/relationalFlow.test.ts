@@ -287,6 +287,8 @@ describe('Transición relacional PostgreSQL 17',()=>{
    expect(event.privacyAcknowledgement.version).toBe('company-capture-v1');
    expect(event.consent).toBeUndefined();
    expect(events.filter((e:any)=>e.applicant.documentNumber==='99900999')).toHaveLength(1);
+   const pendingCandidate=(await call('/api/bootstrap','GET',undefined,admin,'techcenter')).data.candidates.find((c:any)=>c.id===event.candidateId);
+   expect(pendingCandidate).toMatchObject({captureOnly:true,campaignId:'',dni:'99900999'});
    expect((await call('/api/capture/events/'+event.id,'PATCH',{status:'Contactado',note:'CI'},admin,'techcenter')).status).toBe(200);
    const dossier=(await call('/api/capture/candidates/'+event.candidateId,'GET',undefined,admin,'techcenter')).data;
    expect(dossier.events[0].applicant.techCenterAnswers.experienceDetails).toBe('Un año en ventas');

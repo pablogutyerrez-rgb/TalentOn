@@ -1183,7 +1183,6 @@ async function relationalBootstrap(request:Request,env:Env,actor:Profile) {
   const campaigns=(await listFirestore(env,'campaigns')).filter(c=>selection&&campaignAllowed(actor,c)||formation&&(actor.role==='JEFE_FORMACION'||actor.role==='COORDINADOR_FORMACION'&&actor.scope.includes(String(c.id))||actor.role==='FORMADOR'&&cohorts.some(t=>t.campaignId===c.id))||talent&&(actor.role==='JEFE_TALENTO'||actor.scope.includes(String(c.id))||actor.scope.includes(actor.companyId)));
   const candidates=[] as Record<string,unknown>[];
   for(const c of await listFirestore(env,'candidates')){
-    if(c.captureOnly===true)continue;
     if(selection&&(actor.role==='ADMIN'||actor.role==='JEFE_SELECCION'||actor.role==='ANALISTA_SELECCION'&&(c.analystId===actor.uid||actor.scope.includes(String(c.campaignId)))||actor.role==='RECLUTADOR'&&(c.recruiterId===actor.uid||campaigns.some(cmp=>cmp.id===c.campaignId)))||formation&&(actor.role==='ADMIN'||actor.role==='JEFE_FORMACION'||cohorts.some(t=>t.id===c.trainingId))||talent&&(actor.role==='ADMIN'||actor.role==='JEFE_TALENTO'||actor.scope.includes(String(c.campaignId))||actor.scope.includes(actor.companyId)))candidates.push(c);
   }
   const rawUsers=await listFirestore(env,'users');

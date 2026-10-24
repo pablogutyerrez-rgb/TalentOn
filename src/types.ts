@@ -512,6 +512,7 @@ export interface CampaignCall {
 
 export interface CandidateRecord extends CandidatePreferences {
   id: string; // Único en todo el ciclo de vida
+  captureOnly?: boolean; // Registrado por captación, pendiente de vincular a convocatoria
   dni: string;
   fullName: string;
   firstName?: string;
