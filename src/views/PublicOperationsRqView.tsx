@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { publicOperationsApi } from '../services/operationsApi';
+import { CompanyLogo } from '../components/common/CompanyLogo';
 
 type Config = { companyId: string; companyName: string; gerencias: { id: string; name: string }[]; campaigns: { id: string; name: string }[]; turnstileSiteKey: string; securityReady: boolean };
 type Turnstile = { render: (node: HTMLElement, options: object) => string; remove: (id: string) => void; reset: (id: string) => void };
@@ -53,7 +54,7 @@ export function PublicOperationsRqView({ token }: { token: string }) {
   };
   const field = 'mt-1 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm';
   return <main className="min-h-screen bg-slate-100 p-4 text-slate-900"><section className="mx-auto max-w-2xl rounded-xl bg-white p-6 shadow-sm space-y-5">
-    <div><h1 className="text-2xl font-bold text-[#143A56]">Requerimiento de Reclutamiento (RQ)</h1><p className="text-sm text-slate-600">Operaciones · envío sin iniciar sesión</p></div>
+    <div className="flex flex-wrap items-center justify-between gap-4"><div><h1 className="text-2xl font-bold text-[#143A56]">Requerimiento de Reclutamiento (RQ)</h1><p className="text-sm text-slate-600">Operaciones · envío sin iniciar sesión</p></div>{config&&<CompanyLogo companyId={config.companyId} companyName={config.companyName} />}</div>
     {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     {done ? <p role="status" className="rounded-lg bg-green-50 p-4 text-green-800">RQ registrado. El equipo de Selección recibió la alerta.</p> : config && <>
       {!config.securityReady && <p className="rounded-lg bg-amber-50 p-3 text-sm">Este formulario aún no tiene la verificación de seguridad configurada.</p>}

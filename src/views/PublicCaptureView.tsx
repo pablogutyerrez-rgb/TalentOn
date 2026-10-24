@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Building2 } from 'lucide-react';
+import { CompanyLogo, companyLogoSource } from '../components/common/CompanyLogo';
 import { publicCaptureApi } from '../services/captureApi';
 import { TechCenterFields } from '../components/capture/TechCenterFields';
 import {CaptureFormFields} from '../components/capture/CaptureFormFields';
@@ -105,7 +106,7 @@ export function PublicCaptureView({ token }: { token: string }) {
       <div className="mb-6 flex items-center justify-between"><img src="/talent-on-logo.png" alt="Talent-On" className="h-auto w-40 object-contain sm:w-48" /><span className="hidden text-sm text-slate-500 sm:block">Formulario de postulación</span></div>
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_50px_-30px_rgba(20,58,86,.35)]">
         <header className="grid gap-6 border-b border-slate-200 p-5 sm:p-8 lg:grid-cols-[minmax(240px,1fr)_minmax(0,1.7fr)] lg:gap-10">
-          <div className="flex items-center gap-4 lg:border-r lg:border-slate-200 lg:pr-8"><span aria-hidden="true" className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-[#143A56]"><Building2 className="h-7 w-7" /></span><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Empresa contratante</p><p className="mt-1 text-xl font-bold">{companyName||'Cargando empresa…'}</p></div></div>
+          <div className="flex flex-wrap items-center gap-4 lg:border-r lg:border-slate-200 lg:pr-8">{companyLogoSource(undefined,companyName)?<CompanyLogo companyName={companyName} />:<span aria-hidden="true" className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-[#143A56]"><Building2 className="h-7 w-7" /></span>}<div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Empresa contratante</p><p className="mt-1 text-xl font-bold">{companyName||'Cargando empresa…'}</p></div></div>
           <div><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Postula con nosotros</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Completa tu información para que podamos conocer tu perfil y disponibilidad.</p><div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500"><span>Tiempo estimado: {Math.max(4,Math.ceil((questions?.length||24)/3))} min</span><span>Los campos obligatorios están marcados con (*)</span></div></div>
         </header>
         {(customForm?.description||companyName)&&<details className="border-b border-slate-100 px-5 py-3 text-sm text-slate-600 sm:px-8"><summary className="cursor-pointer font-medium text-[#143A56]">Información sobre esta postulación</summary><div className="mt-2 space-y-2">{customForm?.title&&<p className="font-semibold">{customForm.title}</p>}{customForm?.description&&<p>{customForm.description}</p>}{companyName&&techCenterIntro.map(paragraph=><p key={paragraph}>{companyText(paragraph,companyName)}</p>)}</div></details>}
