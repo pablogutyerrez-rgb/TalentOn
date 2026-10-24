@@ -49,6 +49,15 @@ describe('RQ público de Operaciones', () => {
     expect(found.rows[0].result.nonce).toBeTruthy();
     await db.query('update talent.profiles set must_change_password=false where auth_user_id=$1', [requester]);
   });
+  it('lista la referencia cifrada solo al administrador de la empresa', async () => {
+    const sealed = `${'A'.repeat(16)}.${'B'.repeat(40)}`;
+    const created = await db.query<{ result: { id: string } }>('select public.talent_ops_link_create_v2($1,$2,$3,$4) result', [admin, 'techcenter', 'b'.repeat(64), sealed]);
+    const view = await db.query<{ result: { links: { id: string; sealedToken: string | null }[] } }>('select public.talent_ops_admin($1) result', [admin]);
+    expect(view.rows[0].result.links.find(item => item.id === created.rows[0].result.id)?.sealedToken).toBe(sealed);
+    expect(view.rows[0].result.links.find(item => item.id === linkId)?.sealedToken).toBeNull();
+    await expect(db.query('select public.talent_ops_admin($1)', [outsider])).rejects.toThrow();
+    await expect(db.query('select public.talent_ops_link_create_v2($1,$2,$3,$4)', [outsider, 'techcenter', 'c'.repeat(64), sealed])).rejects.toThrow();
+  });
   it('registra RQ solo tras consultar DNI y permite vincular la convocatoria existente', async () => {
     const found = await db.query<{ result: { found: boolean; name: string; nonce: string } }>('select public.talent_ops_public_lookup($1,$2,$3) result', [tokenHash, '81000002', 'ip-a']);
     expect(found.rows[0].result).toMatchObject({ found: true, name: 'Solicitante Real' });

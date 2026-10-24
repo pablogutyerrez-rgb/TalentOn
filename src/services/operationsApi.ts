@@ -10,7 +10,7 @@ export interface OperationsRq {
 export interface OperationsAdminData {
   companies: { id: string; name: string }[];
   gerencias: { id: string; companyId: string; name: string; active: boolean }[];
-  links: { id: string; companyId: string; active: boolean; createdAt: string }[];
+  links: { id: string; companyId: string; active: boolean; createdAt: string; url: string | null }[];
   requests: OperationsRq[];
 }
 export const operationsApi = {

@@ -4,6 +4,23 @@ import { supabaseServerHeaders, SupabaseError, type SupabaseEnv } from './supaba
 type Env = SupabaseEnv & { CAPTURE_HASH_SECRET?: string; TURNSTILE_SECRET_KEY?: string; TURNSTILE_SITE_KEY?: string; ALLOWED_ORIGIN?: string; PRODUCTION_ORIGIN?: string };
 const reply = (value: unknown, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
 const digest = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+const base64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const fromBase64url = (value: string) => Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - value.length % 4) % 4)), char => char.charCodeAt(0));
+async function linkKey(env: Env) {
+  if (!env.CAPTURE_HASH_SECRET) throw new SupabaseError(503, 'OPERATIONS_SECURITY_NOT_CONFIGURED');
+  const material = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`talent-ops-link-v1:${env.CAPTURE_HASH_SECRET}`));
+  return crypto.subtle.importKey('raw', material, 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+export async function sealLinkToken(token: string, env: Env) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await linkKey(env), new TextEncoder().encode(token)));
+  return `${base64url(iv)}.${base64url(encrypted)}`;
+}
+export async function unsealLinkToken(sealed: string, env: Env) {
+  const [iv, encrypted] = sealed.split('.');
+  if (!iv || !encrypted) throw new Error('INVALID_SEALED_LINK');
+  return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromBase64url(iv) }, await linkKey(env), fromBase64url(encrypted)));
+}
 async function rpc<T>(env: Env, name: string, data: object): Promise<T> {
   const result = await fetch(`${env.SUPABASE_URL?.replace(/\/$/, '')}/rest/v1/rpc/${name}`, { method: 'POST', headers: supabaseServerHeaders(env), body: JSON.stringify(data) });
   if (!result.ok) {
@@ -59,12 +76,24 @@ export async function handleOperations(request: Request, env: Env): Promise<Resp
       return reply(created, 201);
     }
     const actor = await relationalSession(request, env);
-    if (path === '/api/operations/admin' && request.method === 'GET') return reply(await rpc(env, 'talent_ops_admin', { p_actor: actor.authUserId }));
+    if (path === '/api/operations/admin' && request.method === 'GET') {
+      const data = await rpc<{ links: { sealedToken?: string | null; [key: string]: unknown }[]; [key: string]: unknown }>(env, 'talent_ops_admin', { p_actor: actor.authUserId });
+      const appOrigin = request.headers.get('origin') || env.PRODUCTION_ORIGIN?.split(',')[0] || '';
+      const links = await Promise.all(data.links.map(async ({ sealedToken, ...link }) => {
+        if (!sealedToken) return { ...link, url: null };
+        try {
+          const token = await unsealLinkToken(sealedToken, env);
+          if (!/^[a-f0-9]{48}$/.test(token)) throw new Error('INVALID_LINK_TOKEN');
+          return { ...link, url: `${appOrigin}/operaciones/rq/${token}` };
+        } catch { return { ...link, url: null }; }
+      }));
+      return reply({ ...data, links });
+    }
     if (path === '/api/operations/requests' && request.method === 'GET') return reply(await rpc(env, 'talent_ops_selection', { p_actor: actor.authUserId }));
     if (path === '/api/operations/links' && request.method === 'POST') {
       const data = await input(request);
       const token = Array.from(crypto.getRandomValues(new Uint8Array(24))).map(byte => byte.toString(16).padStart(2, '0')).join('');
-      const link = await rpc<Record<string, unknown>>(env, 'talent_ops_link_create', { p_actor: actor.authUserId, p_company: data.companyId, p_hash: await digest(token) });
+      const link = await rpc<Record<string, unknown>>(env, 'talent_ops_link_create_v2', { p_actor: actor.authUserId, p_company: data.companyId, p_hash: await digest(token), p_sealed: await sealLinkToken(token, env) });
       const appOrigin = request.headers.get('origin') || env.PRODUCTION_ORIGIN?.split(',')[0] || '';
       return reply({ ...link, url: `${appOrigin}/operaciones/rq/${token}`, token }, 201);
     }
