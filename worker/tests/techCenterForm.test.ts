@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {captureInput} from '../src/capture';
 import {techCenterSections,visibleTechCenterFields,companySections,companyText} from '../../shared/techCenterForm';
 import {changeCaptureAnswer} from '../../shared/techCenterForm';
-import {captureConfig,validateCaptureCampaignConfig, type CaptureCampaignConfig} from '../../shared/captureCampaignConfig';
+import {captureConfig,publicCaptureConfig,validateCaptureCampaignConfig, type CaptureCampaignConfig} from '../../shared/captureCampaignConfig';
 const config:CaptureCampaignConfig={minAge:18,maxAge:60,workdays:['Full time','Semi full'],schedules:['Turno mañana','Turno tarde'],modality:'Presencial'};
 
 export const techApplicant = {
@@ -58,7 +58,8 @@ describe('Formulario TECH CENTER',()=>{
   for(const override of [{age:'17'},{age:'61'},{age:'25.5'},{workday:'Part time'},{availability:'Noche'},{modality:'Remota'},{modality:'Ambas modalidades'}])
    expect(()=>captureInput({...values,...override,configuration:{...config,workdays:['Part time']}},true,campaigns)).toThrow();
   for(const age of ['18','60'])expect(()=>captureInput({...values,age},true,campaigns)).not.toThrow();
-  expect(()=>captureInput(values,true,[{id:'a',name:'A'}])).toThrow();
+  expect(()=>captureInput(values,true,[{id:'a',name:'A'}])).not.toThrow();
+  expect(()=>captureInput(values,true,[{id:'a',name:'A',configuration:{} as CaptureCampaignConfig}])).toThrow();
   expect(()=>captureInput({...values,age:'90'},true,[{...campaigns[0],configuration:{...config,maxAge:null}}])).not.toThrow();
  });
  it('limpia respuestas al cambiar de campaña; equipos se muestran por configuración, no por valor manipulado',()=>{
@@ -80,6 +81,17 @@ describe('Formulario TECH CENTER',()=>{
   expect(captureConfig({...config,schedules:['09:00–18:00']})?.schedules).toEqual(['Turno mañana','Turno tarde']);
   for(const invalid of [{},{...config,minAge:60,maxAge:18},{...config,workdays:[]},{...config,schedules:[]},{...config,schedules:['Turno tarde','Turno tarde']},{...config,schedules:['09:00–18:00']},{...config,modality:'Ambas modalidades'},{...config,minAge:18.5},{...config,workdays:['Full time','Full time']}])
    expect(()=>validateCaptureCampaignConfig(invalid)).toThrow();
+ });
+ it('usa respaldo público sin inventar modalidad y respeta configuraciones existentes',()=>{
+  expect(publicCaptureConfig(null)).toMatchObject({minAge:18,workdays:['Full time','Semi full'],modality:'Preferencia'});
+  expect(publicCaptureConfig(config)).toEqual(config);
+  expect(publicCaptureConfig({})).toBeUndefined();
+  const campaigns=[{id:'sin-config',name:'Sin configuración',configuration:null},{id:'con-config',name:'Configurada',configuration:config}];
+  expect(companySections('Talent Up',campaigns,{preferredCampaign:'sin-config'}).flatMap(s=>s.fields).find(f=>f.key==='modality')?.options).toEqual(['Presencial','Remota']);
+  expect(visibleTechCenterFields({preferredCampaign:'sin-config',modality:'Remota'},campaigns).some(f=>f.key==='computer')).toBe(true);
+  expect(visibleTechCenterFields({preferredCampaign:'sin-config',modality:'Presencial'},campaigns).some(f=>f.key==='computer')).toBe(false);
+  expect(changeCaptureAnswer({},'preferredCampaign','sin-config',campaigns)).not.toHaveProperty('modality');
+  expect(changeCaptureAnswer({},'preferredCampaign','con-config',campaigns).modality).toBe('Presencial');
  });
  it('rechaza opciones inventadas y texto excesivo; no cambia el formulario genérico',()=>{
   for(const field of visibleTechCenterFields(techApplicant).filter(f=>f.options))

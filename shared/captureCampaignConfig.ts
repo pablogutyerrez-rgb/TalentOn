@@ -7,6 +7,14 @@ export type CaptureCampaignConfig = {
   schedules: string[];
   modality: 'Presencial' | 'Remota';
 };
+export type PublicCaptureConfig = CaptureCampaignConfig | Omit<CaptureCampaignConfig, 'modality'> & { modality: 'Preferencia' };
+export function publicCaptureConfig(raw: unknown): PublicCaptureConfig | undefined {
+  if (raw === null || raw === undefined) return {
+    minAge: 18, maxAge: null, workdays: ['Full time', 'Semi full'],
+    schedules: [...captureShifts], modality: 'Preferencia',
+  };
+  return captureConfig(raw);
+}
 
 // Shared by administration and the Worker. No inferred/default campaign offerings.
 export function validateCaptureCampaignConfig(raw: unknown): CaptureCampaignConfig {

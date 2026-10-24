@@ -1,6 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {defaultCaptureForm,validateCaptureForm,validateFormAnswers,effectiveQuestions,visibleQuestions,sensitiveQuestionIds,type FormQuestion} from '../../shared/captureFormSchema';
 import {verifyCaptureFile,readCaptureSubmission} from '../src/captureAttachments';
+import {publicCaptureConfig} from '../../shared/captureCampaignConfig';
 const configuration={minAge:18,maxAge:60,workdays:['Full time'],schedules:['Turno mañana','Turno tarde'],modality:'Presencial' as const};
 const custom=(type:FormQuestion['type'],extra:Partial<FormQuestion>={}):FormQuestion=>({id:'custom',label:'Pregunta',section:'Extra',type,required:true,...extra});
 describe('Editor de formularios',()=>{
@@ -16,6 +17,13 @@ describe('Editor de formularios',()=>{
   expect(visibleQuestions(q,{modality:'Presencial'}).some(q=>q.id==='computer')).toBe(false);
   expect(visibleQuestions(q,{contactCenterExperience:'No',disability:'No'}).some(q=>q.id==='disabilityDetails')).toBe(false);
   expect(sensitiveQuestionIds.every(id=>f.questions.find(q=>q.id===id)?.required===false)).toBe(true);
+ });
+ it('el formulario predeterminado pregunta preferencia cuando falta modalidad',()=>{
+  const questions=effectiveQuestions(defaultCaptureForm(),publicCaptureConfig(null)!,{id:'talent-up:bitel-migraciones',name:'Migraciones Bitel'},'Talent Up');
+  expect(questions.find(q=>q.id==='modality')).toMatchObject({options:[{value:'Presencial',label:'PRESENCIAL'},{value:'Remota',label:'REMOTA'}]});
+  expect(questions.find(q=>q.id==='modality')?.label).toContain('PREFERIDA');
+  expect(visibleQuestions(questions,{modality:'Remota'}).some(q=>q.id==='computer')).toBe(true);
+  expect(visibleQuestions(questions,{modality:'Presencial'}).some(q=>q.id==='computer')).toBe(false);
  });
  it('no permite borrar identidad, duplicar IDs, ciclos, condiciones inválidas ni CONADIS obligatorio',()=>{
   const f=defaultCaptureForm();

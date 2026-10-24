@@ -4,13 +4,14 @@ import { CompanyLogo, companyLogoSource } from '../components/common/CompanyLogo
 import { publicCaptureApi } from '../services/captureApi';
 import { TechCenterFields } from '../components/capture/TechCenterFields';
 import {CaptureFormFields} from '../components/capture/CaptureFormFields';
-import {effectiveQuestions,visibleQuestions,sensitiveQuestionIds,type FormAnswers,type FormQuestion} from '../../shared/captureFormSchema';
+import {defaultCaptureForm,effectiveQuestions,visibleQuestions,sensitiveQuestionIds,type FormAnswers,type FormQuestion} from '../../shared/captureFormSchema';
 import { COMPANY_CAPTURE_FORM, companyText, selectedCaptureConfig, type CaptureCampaignOption, techCenterIntro, techCenterPrivacy, techCenterPrivacyNote } from '../../shared/techCenterForm';
 type Turnstile = { render: (el: HTMLElement, options: object) => string; remove: (id: string) => void; reset: (id: string) => void };
 const steps = ['Datos personales', 'Contacto', 'Perfil y experiencia', 'Disponibilidad', 'Confirmación'] as const;
 const personalFields = new Set(['documentType','documentNumber','age','birthDate','fullName','district','addressReference']);
 const contactFields = new Set(['phone','email']);
 const availabilityFields = new Set(['workday','availability','commitments','commitmentsDetails','modality','computer','usbHeadset','internet','contractType','workOrStudy']);
+const defaultPublicCaptureForm = defaultCaptureForm();
 function fieldStep(id:string,section=''):number {
   if(personalFields.has(id))return 0;
   if(contactFields.has(id))return 1;
@@ -35,12 +36,13 @@ export function PublicCaptureView({ token }: { token: string }) {
   const stepFields=useRef<HTMLDivElement>(null);
   const selectedConfig = selectedCaptureConfig(techAnswers,campaigns);
   const selectedCampaign=campaigns.find(c=>c.id===techAnswers.preferredCampaign);
-  const customForm=selectedCampaign?.form;
+  const publishedForm=selectedCampaign?.form;
+  const customForm=selectedCampaign ? publishedForm || defaultPublicCaptureForm : undefined;
   const questions=customForm&&selectedConfig&&selectedCampaign?effectiveQuestions(customForm,selectedConfig,selectedCampaign,companyName):undefined;
   const sensitiveAnswered=!!questions&&visibleQuestions(questions,techAnswers).some(q=>sensitiveQuestionIds.includes(q.id as typeof sensitiveQuestionIds[number])&&Boolean(techAnswers[q.id]));
   const changeAnswer=(key:string,value:string|string[])=>{
     if(key==='preferredCampaign'){
-      setFiles({});setSensitiveConsent(false);setTechAnswers({preferredCampaign:String(value),modality:campaigns.find(c=>c.id===value)?.configuration?.modality||''});
+      setFiles({});setSensitiveConsent(false);setTechAnswers({preferredCampaign:String(value),...(selectedCaptureConfig({preferredCampaign:String(value)},campaigns)?.modality==='Preferencia'?{}:{modality:campaigns.find(c=>c.id===value)?.configuration?.modality||''})});
       setStepError('');
     }else setTechAnswers(previous=>({...previous,[key]:value}));
   };
@@ -115,7 +117,7 @@ export function PublicCaptureView({ token }: { token: string }) {
       e.preventDefault(); if(step!==4){advance();return;} if(busy||!challenge||!selectedConfig)return;setBusy(true);setError('');
       try{
         const fileIds=new Set(questions?visibleQuestions(questions,techAnswers).filter(q=>q.type==='file').map(q=>q.id):[]);
-        await publicCaptureApi(token,{...techAnswers,...(customForm?{formRevision:selectedCampaign?.formRevision}:{}),privacyAcknowledged:data.consent,sensitiveConsent:sensitiveAnswered&&sensitiveConsent,website:data.website,turnstileToken:challenge,requestId:requestId.current},Object.fromEntries(Object.entries(files as Record<string,File>).filter(([id])=>fileIds.has(id))));
+        await publicCaptureApi(token,{...techAnswers,...(publishedForm?{formRevision:selectedCampaign?.formRevision}:{}),privacyAcknowledged:data.consent,sensitiveConsent:sensitiveAnswered&&sensitiveConsent,website:data.website,turnstileToken:challenge,requestId:requestId.current},Object.fromEntries(Object.entries(files as Record<string,File>).filter(([id])=>fileIds.has(id))));
         setSuccess(true);setFiles({});
       }catch(e){
         const message=e instanceof Error?e.message:'No se pudo enviar.';
@@ -138,6 +140,7 @@ export function PublicCaptureView({ token }: { token: string }) {
           {step===0&&<>
             {!campaigns.length && <p role="status" className="rounded-lg bg-orange-50 p-3 text-sm">Esta empresa no tiene campañas disponibles para postular en este momento.</p>}
             {techAnswers.preferredCampaign && !selectedConfig && <p role="status" className="rounded-lg bg-orange-50 p-3 text-sm">Esta campaña tiene pendiente la configuración del formulario. Contacta al responsable del enlace o selecciona otra campaña.</p>}
+            {selectedCampaign && selectedConfig?.modality==='Preferencia' && <p role="note" className="rounded-lg bg-sky-50 p-3 text-sm text-sky-900">Esta campaña usa el formulario predeterminado. La modalidad que indiques es una preferencia, no una condición confirmada de la vacante.</p>}
             <label className="block text-sm font-semibold">Campaña (*)<select className="mt-2 w-full rounded-xl border border-slate-300 bg-white p-3 text-sm focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-100" required value={String(techAnswers.preferredCampaign||'')} onChange={e=>changeAnswer('preferredCampaign',e.target.value)}><option value="">Selecciona la campaña a la que deseas postular</option>{campaigns.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><span className="mt-1 block text-xs font-normal text-slate-500">Las preguntas se adaptan a la campaña. Cambiarla reinicia las respuestas del formulario.</span></label>
           </>}
           {selectedConfig&&(questions?<CaptureFormFields key={selectedCampaign?.id} questions={questions} hideCampaign showQuestion={(q:FormQuestion)=>fieldStep(q.id,q.section)===step} values={techAnswers} uploadedFiles={files} onChange={changeAnswer} onFile={(id,file)=>{

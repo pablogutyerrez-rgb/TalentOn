@@ -14,7 +14,7 @@ const other='40000000-0000-4000-8000-000000000003';
 let db:any,campaignId:string,personId:string,groupId:string;
 let failNextCaptureCommit=false;
 const objects=new Map<string,Uint8Array>();
-const registrationAnswers={age:'25',contactCenterExperience:'No',workedAtTechCenter:'No',education:'Secundaria completa',workday:'Full time',availability:'Turno tarde',commitments:'No',modality:'Presencial',privacyAcknowledged:true};
+const registrationAnswers={age:'25',contactCenterExperience:'No',workedAtTechCenter:'No',education:'Secundaria completa',reentry:'No',birthDate:'2001-01-01',addressReference:'Lima',contractType:'PLANILLA MICRO',workOrStudy:'No',workday:'Full time',availability:'Turno tarde',commitments:'No',modality:'Presencial',privacyAcknowledged:true};
 const captureConfiguration={minAge:18,maxAge:null,workdays:['Full time','Semi full'],schedules:['Turno mañana','Turno tarde'],modality:'Presencial'};
 const authUsers=new Map<string,any>();
 const env={DATA_PROVIDER:'supabase',SUPABASE_URL:'https://sql-test.supabase.co',SUPABASE_SECRET_KEY:'sb_secret_test',ALLOWED_ORIGIN:'http://localhost:3000',PRODUCTION_ORIGIN:'https://example.test',MAX_UPLOAD_BYTES:'10485760',ATTENDANCE_TIME_ZONE_OFFSET:'-05:00',CAPTURE_HASH_SECRET:'test-only-key',DOCUMENTS:{put:async(k:string,v:any)=>{objects.set(k,new Uint8Array(await new Response(v).arrayBuffer()))},get:async(k:string)=>objects.has(k)?{body:objects.get(k),httpMetadata:{contentType:'application/pdf'}}:null,delete:async(k:string)=>{objects.delete(k)}}} as unknown as Env;
@@ -250,6 +250,26 @@ describe('Transición relacional PostgreSQL 17',()=>{
    expect((await call('/api/bootstrap','GET',undefined,trainer,'talent-up')).status).toBe(403);
   }finally{env.ORG_ENABLED=undefined;}
  });
+ it('activa el formulario predeterminado sin configuración específica de campaña',async()=>{
+  env.ORG_ENABLED='true';
+  try{
+   const link=await call('/api/capture/links','POST',{source:'Facebook',companyCampaignId:'talent-up:bitel-migraciones'},admin,'talent-up');
+   expect(link.status).toBe(201);
+   const pub=async(input?:Record<string,unknown>)=>{
+    const r=await worker.fetch(new Request('https://worker.test/api/public/capture/'+link.data.id,{method:input?'POST':'GET',headers:{Origin:'http://localhost:3000','Content-Type':'application/json'},...(input?{body:JSON.stringify(input)}:{})}),env);
+    return {status:r.status,data:await r.json() as any};
+   };
+   const catalog=await pub();expect(catalog.status).toBe(200);
+   const campaign=catalog.data.campaigns.find((c:any)=>c.id==='talent-up:bitel-migraciones');
+   expect(campaign).toMatchObject({configuration:null,form:null});
+   const applicant={documentType:'DNI',documentNumber:'98800123',age:'25',fullName:'Persona Predeterminada',contactCenterExperience:'No',reentry:'No',birthDate:'2001-01-01',district:'Lima, Comas',addressReference:'Lima',phone:'912345670',email:'default@example.test',education:'Secundaria completa',preferredCampaign:campaign.id,workday:'Full time',availability:'Turno mañana',contractType:'PLANILLA MICRO',workOrStudy:'No',modality:'Remota',privacyAcknowledged:true,requestId:crypto.randomUUID(),turnstileToken:'test-only-token'};
+   expect((await pub(applicant)).status).toBe(201);
+   const event=(await call('/api/capture/management','GET',undefined,admin,'talent-up')).data.events.find((e:any)=>e.applicant.documentNumber===applicant.documentNumber);
+   expect(event.applicant.formSubmission).toMatchObject({revision:0,title:'Formulario de registro de postulantes'});
+   expect(event.applicant.techCenterAnswers).toMatchObject({preferredCampaign:'Migraciones Bitel',modality:'Remota'});
+   expect((await call('/api/bootstrap','GET',undefined,admin,'talent-up')).data.candidates.find((c:any)=>c.id===event.candidateId)).toMatchObject({captureOnly:true,campaignId:''});
+  }finally{env.ORG_ENABLED=undefined;}
+ });
  it('TECH CENTER: formulario por empresa, guardado real y lectura de respuestas sin consentimiento inventado',async()=>{
   env.ORG_ENABLED='true';
   try {
@@ -276,13 +296,13 @@ describe('Transición relacional PostgreSQL 17',()=>{
    expect(privileges).toEqual({anon:false,authenticated:false});
    expect((await pub({fullName:'Incomplete',formId:'capture-v1'})).status).toBe(400);
    const answers=Object.fromEntries(techCenterSections.flatMap(s=>s.fields).filter(f=>f.options).map(f=>[f.key,optionValue(f.options![0])]));
-   const applicant={...answers,age:'25',experienceMonths:'12',availability:'Turno tarde',preferredCampaign:'techcenter:bitel-portabilidad',documentNumber:'99900999',fullName:'CI Techcenter',district:'Lima, Comas',phone:'912345679',email:'tech@example.test',experienceDetails:'Un año en ventas',adjustmentDetails:'Acceso sin escaleras',privacyAcknowledged:true,requestId:crypto.randomUUID(),turnstileToken:'test-only-token'};
+   const applicant={...answers,age:'25',reentry:'No',birthDate:'2001-01-01',addressReference:'Lima',contractType:'PLANILLA MICRO',workOrStudy:'No',availability:'Turno tarde',preferredCampaign:'techcenter:bitel-portabilidad',documentNumber:'99900999',fullName:'CI Techcenter',district:'Lima, Comas',phone:'912345679',email:'tech@example.test',experienceDetails:'Un año en ventas',disability:'Sí',disabilityDetails:'Acceso sin escaleras',sensitiveConsent:true,privacyAcknowledged:true,requestId:crypto.randomUUID(),turnstileToken:'test-only-token'};
    expect((await pub({...applicant,preferredCampaign:'talent-up:bitel-portabilidad',companyId:'talent-up',companyName:'Otra empresa'})).status).toBe(400);
    expect((await pub(applicant)).status).toBe(201);
    expect((await pub(applicant)).status).toBe(201);
    const events=(await call('/api/capture/management','GET',undefined,admin,'techcenter')).data.events;
    const event=events.find((e:any)=>e.applicant.documentNumber==='99900999');
-   expect(event.applicant.techCenterAnswers).toMatchObject({preferredCampaign:'Portabilidad Bitel',preferredCampaignId:'techcenter:bitel-portabilidad',companyName:'Techcenter',experienceDetails:'Un año en ventas',experienceMonths:'12',age:'25',conadis:'Sí',adjustmentDetails:'Acceso sin escaleras'});
+   expect(event.applicant.techCenterAnswers).toMatchObject({preferredCampaign:'Portabilidad Bitel',preferredCampaignId:'techcenter:bitel-portabilidad',companyName:'Techcenter',experienceDetails:'Un año en ventas',age:'25',conadis:'Sí',disabilityDetails:'Acceso sin escaleras'});
    expect(event.applicant.techCenterAnswers.computer).toBeUndefined();
    expect(event.privacyAcknowledgement.version).toBe('company-capture-v1');
    expect(event.consent).toBeUndefined();

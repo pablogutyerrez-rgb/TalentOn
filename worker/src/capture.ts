@@ -1,7 +1,7 @@
 import type { Env } from './index';
 import { TECH_CENTER_FORM, COMPANY_CAPTURE_FORM, validateTechCenterAnswers, type CaptureCampaignOption } from '../../shared/techCenterForm';
-import {effectiveQuestions,validateFormAnswers,validateCaptureForm,visibleQuestions,sensitiveQuestionIds,type FormAnswers} from '../../shared/captureFormSchema';
-import {captureConfig} from '../../shared/captureCampaignConfig';
+import {effectiveQuestions,validateFormAnswers,validateCaptureForm,defaultCaptureForm,visibleQuestions,sensitiveQuestionIds,type FormAnswers} from '../../shared/captureFormSchema';
+import {publicCaptureConfig} from '../../shared/captureCampaignConfig';
 import {readCaptureSubmission,verifyCaptureFile,type CaptureFile} from './captureAttachments';
 
 export type Data = Record<string, any>;
@@ -9,6 +9,7 @@ type Actor = { uid: string; role: string; companyId: string; allowedModules: str
 export type Helpers = { token: (env: Env) => Promise<string>; encode: (data: Data) => any; decode: (data: any) => Data };
 export const captureSources = ['Facebook', 'TikTok', 'LinkedIn', 'WhatsApp', 'Pauta pagada', 'Referidos', 'Otros'];
 export const captureStates = ['Nuevo', 'Contactado', 'No responde', 'Interesado', 'No interesado'];
+const defaultPublicCaptureForm = validateCaptureForm(defaultCaptureForm());
 export class CaptureError extends Error { constructor(message: string, public status = 400) { super(message); } }
 const text = (v: unknown, max: number) => typeof v === 'string' ? v.normalize('NFKC').trim().replace(/\s+/g, ' ').slice(0, max) : '';
 const digits = (v: unknown) => text(v, 40).replace(/\D/g, '');
@@ -144,11 +145,11 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
     const chosen=catalog?.campaigns.find(c=>c.id===input.preferredCampaign);
     let formSubmission:Data|undefined,validatedAnswers:FormAnswers|undefined;
     const verifiedFiles=new Map<string,CaptureFile>();
-    if(chosen?.form){
-      if(input.formRevision!==chosen.formRevision)throw new CaptureError('El formulario cambió. Recarga la página antes de enviarlo.',409);
-      const config=captureConfig(chosen.configuration);if(!config)throw new CaptureError('Campaña pendiente de configuración.');
+    if(chosen){
+      if(chosen.form&&input.formRevision!==chosen.formRevision)throw new CaptureError('El formulario cambió. Recarga la página antes de enviarlo.',409);
+      const config=publicCaptureConfig(chosen.configuration);if(!config)throw new CaptureError('Campaña pendiente de configuración.');
       try{
-        const definition=validateCaptureForm(chosen.form);
+        const definition=chosen.form?validateCaptureForm(chosen.form):defaultPublicCaptureForm;
         const questions=effectiveQuestions(definition,config,chosen,catalog!.companyName);
         const visible=visibleQuestions(questions,input);
         for(const [id,file]of files){
@@ -158,7 +159,7 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
         validatedAnswers=validateFormAnswers(questions,input,new Set(verifiedFiles.keys()));
         if(sensitiveQuestionIds.some(id=>Boolean(validatedAnswers?.[id]))&&input.sensitiveConsent!==true)
           throw new CaptureError('Autoriza expresamente el tratamiento de las respuestas sensibles o déjalas sin responder.');
-        formSubmission={revision:chosen.formRevision,title:definition.title,questions:visible,answers:validatedAnswers,attachments:[]};
+        formSubmission={revision:chosen.formRevision||0,title:definition.title,questions:visible,answers:validatedAnswers,attachments:[]};
       }catch(e){throw new CaptureError(e instanceof Error?e.message:'Revisa el formulario.');}
     }else if(files.size)throw new CaptureError('Este formulario no permite adjuntos.');
     const applicant:Data = captureInput(input, techCenter, catalog?.campaigns,validatedAnswers);

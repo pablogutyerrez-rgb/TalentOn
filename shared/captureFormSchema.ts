@@ -1,4 +1,4 @@
-import {type CaptureCampaignConfig, validateCaptureCampaignConfig} from './captureCampaignConfig';
+import {type CaptureCampaignConfig, type PublicCaptureConfig, validateCaptureCampaignConfig} from './captureCampaignConfig';
 import {techCenterSections, optionValue, optionLabel, companyText} from './techCenterForm';
 
 export const questionTypes = {short:'Texto corto', long:'Texto largo', number:'Número', single:'Respuesta única', multiple:'Respuesta múltiple', select:'Lista desplegable', email:'Correo electrónico', tel:'Teléfono', date:'Fecha', file:'Adjuntar documento'} as const;
@@ -136,11 +136,12 @@ export function validateFormBundle(raw:unknown):CaptureFormBundle{
   const v=raw as CaptureFormBundle;
   return {configuration:validateCaptureCampaignConfig(v?.configuration),form:validateCaptureForm(v?.form)};
 }
-export function effectiveQuestions(form:CaptureForm,config:CaptureCampaignConfig,campaign:{id:string;name:string},companyName:string):FormQuestion[]{
+export function effectiveQuestions(form:CaptureForm,config:PublicCaptureConfig,campaign:{id:string;name:string},companyName:string):FormQuestion[]{
   return form.questions.map(q=>{
     const out={...q,label:companyText(q.label,companyName)};
     if(q.id==='age'){out.min=config.minAge;out.max=config.maxAge??120;out.hint=config.maxAge==null?'Edad mínima: '+config.minAge+' años.':'Rango permitido: '+config.minAge+'–'+config.maxAge+' años.';}
-    const options=q.id==='workday'?config.workdays:q.id==='availability'?config.schedules:q.id==='modality'?[config.modality]:undefined;
+    const options=q.id==='workday'?config.workdays:q.id==='availability'?config.schedules:q.id==='modality'?config.modality==='Preferencia'?['Presencial','Remota']:[config.modality]:undefined;
+    if(q.id==='modality'&&config.modality==='Preferencia')out.label='MODALIDAD DE TRABAJO PREFERIDA (SUJETA A DISPONIBILIDAD DE LA CAMPAÑA)';
     if(options)out.options=options.map(v=>({value:v,label:['workday','modality'].includes(q.id)?v.toUpperCase():v}));
     if(q.id==='availability')out.type='select';
     if(q.id==='preferredCampaign')out.options=[{value:campaign.id,label:campaign.name}];

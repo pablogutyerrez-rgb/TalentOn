@@ -1,6 +1,6 @@
 export const TECH_CENTER_FORM = 'techcenter-v1';
 export const COMPANY_CAPTURE_FORM = 'company-capture-v1';
-import {captureConfig, captureShifts, type CaptureCampaignConfig} from './captureCampaignConfig';
+import {publicCaptureConfig, captureShifts, type CaptureCampaignConfig} from './captureCampaignConfig';
 export type CaptureCampaignOption = { id: string; name: string; configuration?: CaptureCampaignConfig | null; form?:import('./captureFormSchema').CaptureForm|null; formRevision?:number|null };
 export const companyText = (text: string, name: string) => text.replaceAll('TECH CENTER', name);
 export const techCenterIntro = [
@@ -56,28 +56,29 @@ export const techCenterSections: { title: string; hint?: string; when?: TechCent
 export const optionValue = (option: Option) => typeof option === 'string' ? option : option.value;
 export const optionLabel = (option: Option) => typeof option === 'string' ? option : option.label;
 export function selectedCaptureConfig(values: Record<string, unknown>, campaigns: CaptureCampaignOption[]) {
-  return captureConfig(campaigns.find(c=>c.id===values.preferredCampaign)?.configuration);
+  const campaign=campaigns.find(c=>c.id===values.preferredCampaign);
+  return campaign ? publicCaptureConfig(campaign.configuration) : undefined;
 }
 export function changeCaptureAnswer(values: Record<string,string>, key: string, value: string, campaigns: CaptureCampaignOption[]) {
   const next = {...values, [key]:value};
   if (key === 'preferredCampaign') {
     for (const name of ['workday','availability','modality','computer','usbHeadset','internet']) delete next[name];
     const config = selectedCaptureConfig(next,campaigns);
-    if(config) next.modality = config.modality;
+    if(config&&config.modality!=='Preferencia') next.modality = config.modality;
   }
   return next;
 }
 export function companySections(companyName: string, campaigns: CaptureCampaignOption[], values: Record<string, unknown> = {}) {
   const config = selectedCaptureConfig(values,campaigns);
   return techCenterSections.map(section => ({...section,
-    ...(section.title.startsWith('4.') ? {when: () => config?.modality === 'Remota'} : {}),
+    ...(section.title.startsWith('4.') ? {when: () => config?.modality === 'Preferencia' ? values.modality === 'Remota' : config?.modality === 'Remota'} : {}),
     fields:section.fields.map(field=>({
     ...field,label:companyText(field.label,companyName),
     ...(field.key==='preferredCampaign'?{options:campaigns.map(c=>({value:c.id,label:c.name})),max:240}:{}),
     ...(field.key==='age'?{minValue:config?.minAge ?? 0,maxValue:config?.maxAge ?? 120,hint:config ? (config.maxAge===null ? 'Edad mínima: '+config.minAge+' años.' : 'Rango de edad: '+config.minAge+' a '+config.maxAge+' años.') : 'Selecciona una campaña para consultar el rango de edad.'}:{}),
     ...(field.key==='workday'?{options:config?.workdays || [],hint:'Opciones ofrecidas por la campaña seleccionada.'}:{}),
     ...(field.key==='availability'?{options:config?.schedules || [],hint:'Turnos disponibles: mañana y tarde.'}:{}),
-    ...(field.key==='modality'?{options:config ? [config.modality] : []}:{}),
+    ...(field.key==='modality'?{options:config ? config.modality==='Preferencia'?['Presencial','Remota']:[config.modality] : [],...(config?.modality==='Preferencia'?{label:'17. ¿Qué modalidad de trabajo prefieres? (Sujeta a disponibilidad de la campaña)'}:{})}:{}),
   }))}));
 }
 export function visibleTechCenterFields(values: Record<string, unknown>, campaigns?: CaptureCampaignOption[]) {
