@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { formatCandidateExperience, hasExperienceAnswer } from '../../utils/candidateExperience';
 import { IdentityAvatar } from '../common/IdentityAvatar';
 import { 
   X, 
@@ -154,9 +155,10 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
   const latestCapture = captureEvents.slice().reverse().find(event => event.applicant.formSubmission || event.applicant.techCenterAnswers);
   const submittedAnswers = latestCapture?.applicant.formSubmission?.answers ?? latestCapture?.applicant.techCenterAnswers;
   const submittedSchedule = [submittedAnswers?.workday, submittedAnswers?.availability].filter(Boolean).join(' · ');
-  const submittedExperience = submittedAnswers?.contactCenterExperience === 'No'
-    ? 'Sin experiencia en contact center declarada'
-    : submittedAnswers?.experienceMonths ? `${submittedAnswers.experienceMonths} meses en contact center` : '';
+  const experienceAnswers = captureEvents.slice().reverse()
+    .map(event => event.applicant.formSubmission?.answers ?? event.applicant.techCenterAnswers)
+    .find(hasExperienceAnswer);
+  const submittedExperience = formatCandidateExperience(experienceAnswers, candidate.experienceMonths);
   const campaign = scopedCampaigns.find(item => item.id === candidate.campaignId);
   const expedient = getExpedientAnalysis(candidate);
   const stageFlow: SelectionStage[] = ['NUEVO', 'CONTACTADO', 'ENTREVISTA', 'VERIFICACION_TECNICA', 'EVALUACIONES', 'APTO_CAPACITACION'];
@@ -428,6 +430,11 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
                   <div className="flex min-w-0 items-center gap-3 p-3"><TrendingUp className="h-4 w-4 shrink-0 text-[#143A56]" /><div className="min-w-0"><span className="block text-2xs text-slate-500">Etapa actual</span><span className="inline-flex rounded-md bg-sky-100 px-2 py-0.5 text-2xs font-bold text-sky-800">{compactStageLabels[currentStage] || currentStage}</span></div></div>
                 </div>
 
+                <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs">
+                  <span className="block font-semibold text-slate-500">Experiencia laboral declarada</span>
+                  <p className="mt-1 whitespace-pre-wrap break-words font-semibold text-slate-900">{captureLoading ? 'Cargando respuestas…' : submittedExperience}</p>
+                </div>
+
                 {/* Pipeline visual stepper */}
                 <div>
                   <h4 className="mb-2 text-2xs font-bold uppercase tracking-wider text-slate-600">
@@ -528,7 +535,7 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
 
                     <div>
                       <span className="text-slate-500 block text-2xs font-semibold">Experiencia Laboral</span>
-                      <strong className="text-slate-900">{submittedExperience || (candidate.experienceMonths ? `${candidate.experienceMonths} meses en contact center` : 'No informada')}</strong>
+                      <strong className="whitespace-pre-wrap break-words text-slate-900">{captureLoading ? 'Cargando respuestas…' : submittedExperience}</strong>
                     </div>
 
                     <div>
