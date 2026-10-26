@@ -68,6 +68,8 @@ const WORKER_ERROR_MESSAGES: Record<string, string> = {
   EVALUATION_ALREADY_RECORDED: 'Esta evaluación ya fue registrada para el participante.',
   RECRUITER_NOT_AVAILABLE: 'El responsable seleccionado no está activo o no pertenece a la empresa.',
   CANDIDATE_NOT_ELIGIBLE: 'El candidato aún no cumple los requisitos para el alta.',
+  CANDIDATE_ALREADY_IN_TRAINING: 'Uno o más postulantes ya pertenecen a una capacitación. La lista se actualizará; selecciona solo los disponibles.',
+  CANDIDATE_NOT_READY_FOR_TRAINING: 'Uno o más postulantes ya no están aptos para capacitación. La lista se actualizará; revisa la selección.',
   DOCUMENTS_NOT_VALIDATED: 'Aún existen documentos obligatorios pendientes de validación.',
   CONTRACT_NOT_PENDING_SIGNATURE: 'El contrato no se encuentra pendiente de firma.',
   SUPABASE_API_NOT_CONFIGURED: 'El servicio Supabase no está configurado.',

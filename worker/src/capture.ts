@@ -5,7 +5,7 @@ import {publicCaptureConfig} from '../../shared/captureCampaignConfig';
 import {readCaptureSubmission,verifyCaptureFile,type CaptureFile} from './captureAttachments';
 
 export type Data = Record<string, any>;
-type Actor = { uid: string; role: string; companyId: string; allowedModules: string[]; subordinateUserIds?: string[] };
+type Actor = { uid: string; role: string; companyId: string; allowedModules: string[]; subordinateUserIds?: string[]; scope?: string[] };
 export type Helpers = { token: (env: Env) => Promise<string>; encode: (data: Data) => any; decode: (data: any) => Data };
 export const captureSources = ['Facebook', 'TikTok', 'LinkedIn', 'WhatsApp', 'Pauta pagada', 'Referidos', 'Otros'];
 export const captureStates = ['Nuevo', 'Contactado', 'No responde', 'Interesado', 'No interesado'];
@@ -30,7 +30,7 @@ export function captureInput(v: Data, techCenter = false, campaigns?: CaptureCam
   return { fullName, documentType, documentNumber, phone: normalizedPhone, email, district, ...(techCenterAnswers ? { techCenterAnswers } : {}) };
 }
 function allowed(actor: Actor) {
-  if (actor.role !== 'ADMIN' && (!['RECLUTADOR', 'ANALISTA_SELECCION'].includes(actor.role) || !actor.allowedModules.includes('SELECCION'))) throw new CaptureError('FORBIDDEN', 403);
+  if (actor.role !== 'ADMIN' && (!['RECLUTADOR', 'ANALISTA_SELECCION', 'JEFE_SELECCION'].includes(actor.role) || !actor.allowedModules.includes('SELECCION'))) throw new CaptureError('FORBIDDEN', 403);
 }
 export function owns(actor: Actor, record: Data) {
   allowed(actor);
@@ -109,11 +109,21 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
   const reply = (value: unknown, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
   if (!actor && !path.startsWith('/api/public/')) return;
   if (actor) allowed(actor);
+  if (actor?.role === 'JEFE_SELECCION' && !/^\/api\/capture\/(?:candidates\/[a-zA-Z0-9_-]{1,100}|attachments\/[a-f0-9-]{36}\/[a-zA-Z][a-zA-Z0-9_]{0,63})$/.test(path)) throw new CaptureError('FORBIDDEN', 403);
   const store = new Store(env, helpers, await helpers.token(env));
   const managerOwners = async () => {
     const users = await store.query('users', actor?.role === 'ADMIN' ? {} : { companyId: actor?.companyId }, undefined, 2001);
     if (users.length > 2000) throw new CaptureError('El equipo supera el límite de consulta gerencial. Requiere paginación.', 503);
     return users.filter(u => actor?.role === 'ADMIN' || (u.role === 'RECLUTADOR' && actor?.subordinateUserIds?.includes(u.id))).map(u => ({ uid: u.id, name: u.displayName || u.name || u.username || 'Sin nombre', companyId: u.companyId, role: u.role, active: u.status === 'ACTIVO' && u.enabled !== false }));
+  };
+  const mayReadEvent = (person: Data, event: Data, supervised: Set<string>) => {
+    if (!actor) return false;
+    return actor.role === 'ADMIN' || (
+      event.companyId === actor.companyId && person.companyId === actor.companyId && (
+        actor.role === 'JEFE_SELECCION' || event.ownerUid === actor.uid ||
+        (actor.role === 'ANALISTA_SELECCION' && (supervised.has(event.ownerUid) || actor.scope?.includes(String(person.campaignId || '')) || person.analystId === actor.uid))
+      )
+    );
   };
   if (path === '/api/capture/management' && request.method === 'GET') {
     if (!actor || !['ADMIN', 'ANALISTA_SELECCION'].includes(actor.role)) throw new CaptureError('FORBIDDEN', 403);
@@ -227,7 +237,8 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
   if(attachment&&request.method==='GET'){
     const event=await store.get('captations/'+attachment[1]);
     const supervised=actor.role==='ANALISTA_SELECCION'?new Set((await managerOwners()).map(u=>u.uid)):new Set<string>();
-    if(!event||event.companyId!==actor.companyId||actor.role!=='ADMIN'&&event.ownerUid!==actor.uid&&!supervised.has(event.ownerUid))throw new CaptureError('FORBIDDEN',403);
+    const person=event?await store.get('candidates/'+event.candidateId):null;
+    if(!event||!person||event.companyId!==actor.companyId||!mayReadEvent(person,event,supervised))throw new CaptureError('FORBIDDEN',403);
     const file=event.applicant?.formSubmission?.attachments?.find((f:Data)=>f.id===attachment[2]);
     if(!file?.objectKey)throw new CaptureError('NOT_FOUND',404);
     const object=await env.DOCUMENTS.get(file.objectKey);if(!object)throw new CaptureError('NOT_FOUND',404);
@@ -283,11 +294,11 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
   }
   const dossier = path.match(/^\/api\/capture\/candidates\/([a-zA-Z0-9_-]{1,100})$/);
   if (dossier && request.method === 'GET') {
-    const supervised = actor.role === 'ANALISTA_SELECCION' ? new Set((await managerOwners()).map(u => u.uid)) : new Set<string>();
-    const events = (await store.query('captations', { candidateId: dossier[1] }, undefined, 501)).filter(e => actor.role === 'ADMIN' || (e.companyId === actor.companyId && (e.ownerUid === actor.uid || supervised.has(e.ownerUid))));
-    if (!events.length) throw new CaptureError('FORBIDDEN', 403);
     const candidate = await store.get(`candidates/${dossier[1]}`); if (!candidate) throw new CaptureError('NOT_FOUND', 404);
     if (actor.role !== 'ADMIN' && candidate.companyId !== actor.companyId) throw new CaptureError('FORBIDDEN', 403);
+    const supervised = actor.role === 'ANALISTA_SELECCION' ? new Set((await managerOwners()).map(u => u.uid)) : new Set<string>();
+    const events = (await store.query('captations', { candidateId: dossier[1] }, undefined, 501)).filter(e => mayReadEvent(candidate,e,supervised));
+    if (!events.length) throw new CaptureError('FORBIDDEN', 403);
     // A recruiter sees only personal information they received, never another recruiter's history.
     const applicant = actor.role === 'ADMIN' ? { fullName: candidate.fullName, phone: candidate.phone, email: candidate.email, documentType: candidate.documentType || 'DNI', documentNumber: candidate.documentNumber || candidate.dni, district: candidate.district || candidate.city } : events[0].applicant;
     return reply({ candidate: { id: candidate.id, ...applicant }, events: events.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).map(({ possibleIds, ...e }) => actor.role === 'ADMIN' ? { ...e, possibleIds } : e) });

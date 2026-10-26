@@ -22,8 +22,20 @@
         respond `{"ok":true}` 200
     }
 
+    # Hashed Vite bundles must never fall through to index.html. A missing
+    # bundle belongs to an older deployment and must be a real 404.
+    handle /assets/* {
+        root * /app/dist
+        header Cache-Control "public, max-age=31536000, immutable"
+        header X-Content-Type-Options nosniff
+        encode zstd gzip
+        file_server
+    }
+
     handle {
         root * /app/dist
+        header Cache-Control "no-store"
+        header X-Content-Type-Options nosniff
         encode zstd gzip
         try_files {path} /index.html
         file_server

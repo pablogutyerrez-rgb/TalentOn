@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { IdentityAvatar } from '../common/IdentityAvatar';
 import { 
   X, 
@@ -52,6 +52,8 @@ import { getExpedientAnalysis } from '../../utils/expedientUtils';
 import { getWorkerErrorMessage } from '../../services/workerApi';
 import { captureApi, CaptureDossier } from '../../services/captureApi';
 import { CaptureDossierPanel } from './CaptureDossierPanel';
+import { CaptureFormAnswers } from '../capture/CaptureFormAnswers';
+import { TechCenterAnswers } from '../capture/TechCenterAnswers';
 import { SelectionAdvancedPanel } from './SelectionAdvancedPanel';
 
 interface Candidate360ModalProps {
@@ -83,6 +85,9 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
 
   const [activeTab, setActiveTab] = useState<TabType>('resumen');
   const [captureDossier, setCaptureDossier] = useState<CaptureDossier | null>(null);
+  const [captureHistoryOpen, setCaptureHistoryOpen] = useState(false);
+  const [captureLoading, setCaptureLoading] = useState(false);
+  const [captureUnavailable, setCaptureUnavailable] = useState(false);
   const [isDiscardModalOpen, setIsDiscardModalOpen] = useState(false);
   const [cvDownloading, setCvDownloading] = useState(false);
   const [cvError, setCvError] = useState('');
@@ -114,6 +119,23 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
   const [techNotes, setTechNotes] = useState('');
   const [techObservationDetail, setTechObservationDetail] = useState('');
 
+  useEffect(() => {
+    setCaptureDossier(null);
+    setCaptureHistoryOpen(false);
+    setCaptureUnavailable(false);
+    if (!candidateId || !['ADMIN', 'RECLUTADOR', 'ANALISTA_SELECCION', 'JEFE_SELECCION'].includes(currentUser.role)) return;
+    let cancelled = false;
+    setCaptureLoading(true);
+    void captureApi.dossier(candidateId).then(dossier => {
+      if (!cancelled) setCaptureDossier(dossier);
+    }).catch(() => {
+      if (!cancelled) setCaptureUnavailable(true);
+    }).finally(() => {
+      if (!cancelled) setCaptureLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [candidateId, currentUser.role]);
+
   // New Evaluation Form State
   const [evalName, setEvalName] = useState('Prueba de Velocidad de Digitación');
   const [evalScore, setEvalScore] = useState(85);
@@ -128,6 +150,13 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
   const isDiscarded = candidate.currentStage === 'DESCARTADO' || candidate.selection?.status === 'NO_APTO';
   const isAptoCapacitacion = currentStage === 'APTO_CAPACITACION';
   const candidateName = candidate.fullName?.trim() || [candidate.firstName, candidate.lastName].filter(Boolean).join(' ').trim() || 'Candidato';
+  const captureEvents = captureDossier?.events ?? [];
+  const latestCapture = captureEvents.slice().reverse().find(event => event.applicant.formSubmission || event.applicant.techCenterAnswers);
+  const submittedAnswers = latestCapture?.applicant.formSubmission?.answers ?? latestCapture?.applicant.techCenterAnswers;
+  const submittedSchedule = [submittedAnswers?.workday, submittedAnswers?.availability].filter(Boolean).join(' · ');
+  const submittedExperience = submittedAnswers?.contactCenterExperience === 'No'
+    ? 'Sin experiencia en contact center declarada'
+    : submittedAnswers?.experienceMonths ? `${submittedAnswers.experienceMonths} meses en contact center` : '';
   const campaign = scopedCampaigns.find(item => item.id === candidate.campaignId);
   const expedient = getExpedientAnalysis(candidate);
   const stageFlow: SelectionStage[] = ['NUEVO', 'CONTACTADO', 'ENTREVISTA', 'VERIFICACION_TECNICA', 'EVALUACIONES', 'APTO_CAPACITACION'];
@@ -325,8 +354,8 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
           </div>
 
           {/* Tab Navigation (8 Tabs) */}
-          {['ADMIN', 'RECLUTADOR'].includes(currentUser.role) && <div className="border-b border-slate-200 px-5 py-2"><button className="text-xs font-semibold text-sky-700" onClick={async () => { try { setCaptureDossier(await captureApi.dossier(candidate.id)); } catch { alert('No hay captaciones disponibles dentro de tu alcance.'); } }}>Origen e historial de captaciones</button></div>}
-          {captureDossier && <CaptureDossierPanel dossier={captureDossier} onClose={() => setCaptureDossier(null)} />}
+          {captureDossier && <div className="border-b border-slate-200 px-5 py-2"><button className="text-xs font-semibold text-sky-700" onClick={() => setCaptureHistoryOpen(true)}>Origen e historial de captaciones</button></div>}
+          {captureDossier && captureHistoryOpen && <CaptureDossierPanel dossier={captureDossier} onClose={() => setCaptureHistoryOpen(false)} />}
           <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-5 custom-scrollbar">
             {[
               { id: 'resumen', label: 'Resumen', icon: FileText },
@@ -485,26 +514,26 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
                     </div>
                     <div>
                       <span className="text-slate-500 block text-2xs font-semibold">Modalidad</span>
-                      <strong className="text-slate-900">{candidate.workModality || 'Sin especificar'}</strong>
+                      <strong className="text-slate-900">{submittedAnswers?.modality || candidate.workModality || 'Sin especificar'}</strong>
                     </div>
                     <div>
                       <span className="text-slate-500 block text-2xs font-semibold">Horario / Jornada</span>
-                      <strong className="text-slate-900">{candidate.workSchedule || 'Sin especificar'}</strong>
+                      <strong className="text-slate-900">{submittedSchedule || candidate.workSchedule || 'Sin especificar'}</strong>
                     </div>
 
                     <div>
                       <span className="text-slate-500 block text-2xs font-semibold">Edad</span>
-                      <strong className="text-slate-900">{candidate.age || 24} años ({candidate.birthDate || '2000-01-01'})</strong>
+                      <strong className="text-slate-900">{submittedAnswers?.age || candidate.age || 'No informada'}{submittedAnswers?.age || candidate.age ? ' años' : ''}{candidate.birthDate ? ` (${candidate.birthDate})` : ''}</strong>
                     </div>
 
                     <div>
                       <span className="text-slate-500 block text-2xs font-semibold">Experiencia Laboral</span>
-                      <strong className="text-slate-900">{candidate.experienceMonths || 6} meses en Contact Center</strong>
+                      <strong className="text-slate-900">{submittedExperience || (candidate.experienceMonths ? `${candidate.experienceMonths} meses en contact center` : 'No informada')}</strong>
                     </div>
 
                     <div>
                       <span className="text-slate-500 block text-2xs font-semibold">Nivel de Inglés</span>
-                      <strong className="text-slate-900">{candidate.englishLevel || 'BASICO'}</strong>
+                      <strong className="text-slate-900">{candidate.englishLevel || 'No informado'}</strong>
                     </div>
 
                     <div>
@@ -523,6 +552,19 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {['ADMIN', 'RECLUTADOR', 'ANALISTA_SELECCION', 'JEFE_SELECCION'].includes(currentUser.role) && <section className="rounded-xl border border-slate-200 bg-white p-5">
+                  <h4 className="text-sm font-bold text-[#0B2847]">Información declarada en el formulario de postulación</h4>
+                  <p className="mt-1 text-xs text-slate-500">Se muestran las respuestas originales de cada captación disponible, incluidas experiencia, jornada y turno.</p>
+                  {captureLoading && <p className="mt-4 text-sm text-slate-500">Cargando respuestas…</p>}
+                  {!captureLoading && captureUnavailable && <p className="mt-4 text-sm text-slate-500">No hay respuestas de captación disponibles dentro de tu alcance.</p>}
+                  {!captureLoading && captureEvents.slice().reverse().map(event => <div key={event.id} className="mt-4 border-t border-slate-200 pt-3">
+                    <p className="text-xs font-semibold text-slate-600">{event.source} · {new Date(event.createdAt).toLocaleDateString('es-PE')}</p>
+                    {event.applicant.formSubmission
+                      ? <CaptureFormAnswers eventId={event.id} submission={event.applicant.formSubmission} inline />
+                      : <TechCenterAnswers answers={event.applicant.techCenterAnswers} inline />}
+                  </div>)}
+                </section>}
 
                 {candidate.observationsGeneral && (
                   <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs">

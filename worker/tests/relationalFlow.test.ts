@@ -112,6 +112,9 @@ describe('Transición relacional PostgreSQL 17',()=>{
   for(const stage of ['CONTACTADO','ENTREVISTA','VERIFICACION_TECNICA','EVALUACIONES','APTO_CAPACITACION'])expect((await call('/api/candidates/'+personId+'/stage','POST',{stage})).status).toBe(200);
   const date=new Date().toISOString().slice(0,10);
   const r=await call('/api/trainings/from-selection','POST',{campaignId,candidateIds:[personId],name:'CI Grupo',code:'CI-GROUP',startDate:date,endDate:date,totalDays:5,modality:'PRESENCIAL',schedule:'09:00-16:00'});expect(r.status).toBe(201);groupId=r.data.id;
+  const duplicate=await call('/api/trainings/from-selection','POST',{campaignId,candidateIds:[personId],name:'CI Grupo duplicado',code:'CI-GROUP-2',startDate:date,totalDays:5,modality:'PRESENCIAL',schedule:'09:00-16:00'});
+  expect(duplicate).toMatchObject({status:409,data:{message:'CANDIDATE_ALREADY_IN_TRAINING'}});
+  expect((await db.query('select count(*)::integer as n from talent.training_groups')).rows[0].n).toBe(1);
   expect((await call('/api/trainings/'+groupId+'/trainer','POST',{trainerId:trainer,notes:'CI'})).status).toBe(200);
   const bootstrap=await call('/api/bootstrap','GET',undefined,trainer);expect(bootstrap.status).toBe(200);expect(bootstrap.data.cohorts).toHaveLength(1);expect(bootstrap.data.candidates).toHaveLength(1);
   const denied=await call('/api/trainings/'+groupId+'/trainer','POST',{trainerId:other},other);expect(denied.status).not.toBe(200);
@@ -127,10 +130,28 @@ describe('Transición relacional PostgreSQL 17',()=>{
   const pending=await call('/api/candidates/'+personId+'/alta','POST',{},trainer);expect(pending.status).toBe(409);
  });
  it('asistencia masiva es atómica y la ventana utiliza hora de servidor',async()=>{
-  const day=new Date(Date.now()-5*3600000).toISOString().slice(0,10);
-  const clock=new Date(Date.now()-5*3600000-5*60000).toISOString().slice(11,16);
-  expect((await call('/api/trainings/'+groupId+'/management','PATCH',{operation:'DETAILS',schedule:clock+'-16:00'})).status).toBe(200);
-  const body={candidateIds:[personId,'missing'],date:day,dayNumber:1,status:'PRESENTE',attendance:'PRESENTE'};
+  const day='2026-10-26';
+  expect((await call('/api/trainings/'+groupId+'/management','PATCH',{operation:'DETAILS',schedule:'08:00 - 16:00'})).status).toBe(200);
+  const url='/api/trainings/'+groupId+'/attendance-window?date='+day;
+  vi.useFakeTimers({toFake:['Date']});
+  try {
+   vi.setSystemTime(new Date('2026-10-26T13:59:59Z'));
+   const before=await call(url,'GET',undefined,trainer);
+   expect(before.data).toMatchObject({state:'UPCOMING',startAt:'2026-10-26T14:00:00.000Z',closesAt:'2026-10-27T02:30:00.000Z'});
+   vi.setSystemTime(new Date('2026-10-26T14:00:00Z'));
+   expect((await call(url,'GET',undefined,trainer)).data.state).toBe('OPEN');
+   vi.setSystemTime(new Date('2026-10-27T02:30:00Z'));
+   expect((await call(url,'GET',undefined,trainer)).data.state).toBe('OPEN');
+   vi.setSystemTime(new Date('2026-10-27T02:30:01Z'));
+   expect((await call(url,'GET',undefined,trainer)).data.state).toBe('LOCKED');
+  } finally { vi.useRealTimers(); }
+  // Un día anterior permite probar la escritura SQL sin depender de la hora real del CI.
+  const pastDay=new Date(Date.now()-5*3600000-86400000).toISOString().slice(0,10);
+  const unlockPath='/api/trainings/'+groupId+'/attendance-unlocks/'+pastDay;
+  expect((await call(unlockPath,'POST',{reason:'Prueba de marcación fuera de horario'},trainer)).status).toBe(201);
+  const unlock=(await db.query('select id,version from talent.attendance_unlocks where group_id=$1 and day_date=$2',[groupId,pastDay])).rows[0];
+  await db.query('select public.talent_unlock_decide($1::uuid,$2,$3,$4,$5,$6,$7::timestamptz)',[admin,'tenant',unlock.id,unlock.version,true,'Prueba controlada',new Date(Date.now()+3600000).toISOString()]);
+  const body={candidateIds:[personId,'missing'],date:pastDay,dayNumber:1,status:'PRESENTE',attendance:'PRESENTE'};
   const failed=await call('/api/trainings/'+groupId+'/attendance/bulk','POST',body,trainer);expect(failed.status).not.toBe(201);
   expect((await db.query('select count(*)::integer as n from talent.attendance')).rows[0].n).toBe(0);
   expect((await call('/api/trainings/'+groupId+'/attendance/bulk','POST',{...body,candidateIds:[personId]},trainer)).status).toBe(201);
@@ -195,6 +216,16 @@ describe('Transición relacional PostgreSQL 17',()=>{
   const applicant={...registrationAnswers,preferredCampaign:campaignId,requestId:crypto.randomUUID(),fullName:'CI Captado',phone:'912345678',email:'fixture@example.test',documentType:'DNI',documentNumber:'99900003',district:'Lima',turnstileToken:'test-token'};
   expect((await publicRequest(applicant)).status).toBe(201);expect((await publicRequest(applicant)).status).toBe(201);
   const manager=await call('/api/capture/management');expect(manager.status).toBe(200);expect(manager.data.events).toHaveLength(1);expect(manager.data.events[0].applicant.fullName).toBe('CI Captado');
+  const dossier=await call('/api/capture/candidates/'+manager.data.events[0].candidateId);
+  expect(dossier.status).toBe(200);
+  expect(dossier.data.events[0].applicant.techCenterAnswers).toMatchObject({contactCenterExperience:'No',workday:'Full time',availability:'Turno tarde',modality:'Presencial'});
+  await db.exec(`update talent.profiles set role='JEFE_SELECCION' where id='${trainer}'; insert into talent.user_modules(company_id,id,user_id,module) values ('tenant','ci-selection-chief','${trainer}','SELECCION');`);
+  try {
+   expect((await call('/api/capture/candidates/'+manager.data.events[0].candidateId,'GET',undefined,trainer)).status).toBe(200);
+   expect((await call('/api/capture/links','GET',undefined,trainer)).status).toBe(403);
+  } finally {
+   await db.exec(`update talent.profiles set role='FORMADOR' where id='${trainer}';`);
+  }
  });
  it('plantilla y vinculación de captura conservan versión y preguntas',async()=>{
   const stages=['NUEVO','CONTACTADO','ENTREVISTA','VERIFICACION_TECNICA','EVALUACIONES','APTO_CAPACITACION'].map(stage=>({stage,requirements:''}));

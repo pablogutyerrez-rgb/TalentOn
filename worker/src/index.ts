@@ -21,7 +21,6 @@ export interface Env extends SupabaseEnv, RuntimeEnv {
   ALLOWED_ORIGIN: string;
   PRODUCTION_ORIGIN: string;
   MAX_UPLOAD_BYTES: string;
-  ATTENDANCE_TIME_ZONE_OFFSET?: string;
   DOCUMENTS: R2Bucket;
 }
 
@@ -362,7 +361,9 @@ async function createTrainingFromSelection(request: Request, env: Env, actor: Pr
   const participants: Record<string, unknown>[] = [];
   for (const id of uniqueParticipantIds) {
     const candidateData = await candidate(env, id); if ((formationManager?candidateData.companyId!==actor.companyId:!candidateAllowed(actor, candidateData)) || candidateData.campaignId !== campaignId) throw new Error('FORBIDDEN'); const selection = isRecord(candidateData.selection) ? candidateData.selection : {};
-    if (selection.stage !== 'APTO_CAPACITACION' || candidateData.trainingId) throw new Error('CANDIDATE_NOT_READY_FOR_TRAINING'); participants.push(candidateData);
+    if (candidateData.trainingId) throw new Error('CANDIDATE_ALREADY_IN_TRAINING');
+    if (selection.stage !== 'APTO_CAPACITACION') throw new Error('CANDIDATE_NOT_READY_FOR_TRAINING');
+    participants.push(candidateData);
   }
   if(input.maxCapacity!==undefined&&(numberValue(input.maxCapacity)<=0||numberValue(input.maxCapacity)<uniqueParticipantIds.length))throw new Error('INVALID_CAPACITY');
   const trainingFields = ['name', 'code', 'startDate', 'endDate', 'schedule', 'modality', 'location', 'roomOrLink', 'ojtStartDate', 'ojtEndDate', 'observations', 'passingMinGrade', 'totalDays', 'maxCapacity', 'ojtTotalDays', 'evaluationsConfig'];
@@ -464,15 +465,12 @@ async function attendanceUnlock(env: Env, trainingId: string, date: string): Pro
   try { return unpack((await firestore(env, `attendanceUnlockRequests/${attendanceUnlockId(trainingId, date)}`)).fields ?? {}); }
   catch (error) { if (error instanceof Error && error.message === 'FIRESTORE_404') return null; throw error; }
 }
-function trainingStartTime(training: Record<string, unknown>): string {
-  return String(training.schedule ?? '').match(/(?:^|\s)([01]\d|2[0-3]):[0-5]\d/)?.[0]?.trim() || '09:00';
-}
-async function attendanceWindow(env: Env, trainingId: string, training: Record<string, unknown>, date: string) {
+async function attendanceWindow(env: Env, trainingId: string, date: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('INVALID_ATTENDANCE_DATE');
-  const offset = /^[-+]\d{2}:\d{2}$/.test(env.ATTENDANCE_TIME_ZONE_OFFSET || '') ? env.ATTENDANCE_TIME_ZONE_OFFSET : '-05:00';
-  const startAt = new Date(`${date}T${trainingStartTime(training)}:00${offset}`);
+  // La marcación es una ventana diaria fija, independiente del horario de clases.
+  const startAt = new Date(`${date}T09:00:00-05:00`);
   if (Number.isNaN(startAt.getTime())) throw new Error('INVALID_ATTENDANCE_SCHEDULE');
-  const closesAt = new Date(startAt.getTime() + 30 * 60 * 1000);
+  const closesAt = new Date(`${date}T21:30:00-05:00`);
   const serverNow = new Date();
   const unlock = await attendanceUnlock(env, trainingId, date);
   const state: AttendanceWindowState = unlock?.status === 'APROBADA'
@@ -481,15 +479,15 @@ async function attendanceWindow(env: Env, trainingId: string, training: Record<s
   return { serverNow: serverNow.toISOString(), startAt: startAt.toISOString(), closesAt: closesAt.toISOString(), state, unlock };
 }
 async function attendanceWindowResponse(request: Request, env: Env, actor: Profile, trainingId: string, date: string) {
-  const training = await requireTrainingAccess(env, actor, trainingId);
-  return response(await attendanceWindow(env, trainingId, training, date), 200, cors(request, env));
+  await requireTrainingAccess(env, actor, trainingId);
+  return response(await attendanceWindow(env, trainingId, date), 200, cors(request, env));
 }
 async function requestAttendanceUnlock(request: Request, env: Env, actor: Profile, trainingId: string, date: string) {
   const training = await requireTrainingAccess(env, actor, trainingId);
   if (actor.role !== 'FORMADOR' || training.trainerId !== actor.uid) throw new Error('FORBIDDEN');
   const input = await request.json<Record<string, unknown>>(); const reason = String(input.reason ?? '').trim();
   if (reason.length < 5) throw new Error('ATTENDANCE_UNLOCK_REASON_REQUIRED');
-  const window = await attendanceWindow(env, trainingId, training, date);
+  const window = await attendanceWindow(env, trainingId, date);
   if (window.state === 'OPEN' || window.state === 'UPCOMING') throw new Error('ATTENDANCE_WINDOW_NOT_LOCKED');
   const now = new Date().toISOString(); const id = attendanceUnlockId(trainingId, date);
   if (window.unlock?.status === 'PENDIENTE' || window.unlock?.status === 'APROBADA') throw new Error('ATTENDANCE_UNLOCK_ALREADY_REQUESTED');
@@ -549,7 +547,7 @@ async function appendParticipantHistory(request: Request, env: Env, actor: Profi
     if (kind === 'evaluations') { const score = numberValue(input.score, -1); const maxScore = numberValue(input.maxScore, -1); const evaluationId = String(input.evaluationId ?? ''); if (!evaluationId || !String(input.name ?? input.moduleName ?? '').trim() || score < 0 || maxScore <= 0 || score > maxScore || !['APROBADO', 'NO_APROBADO'].includes(String(input.result ?? ''))) throw new Error('INVALID_EVALUATION'); if (history.some(item => isRecord(item) && String(item.evaluationId ?? '') === evaluationId)) throw new Error('EVALUATION_ALREADY_RECORDED'); }
     let nextHistory = [...history, entry];
     if (kind === 'attendance' && typeof input.date === 'string') {
-      const window = await attendanceWindow(env, trainingId, training, input.date);
+      const window = await attendanceWindow(env, trainingId, input.date);
       if (window.state !== 'OPEN' && window.state !== 'UNLOCKED') throw new Error('ATTENDANCE_WINDOW_LOCKED');
       const previous = history.find(item => isRecord(item) && item.date === input.date);
       nextHistory = [...history.filter(item => !isRecord(item) || item.date !== input.date), { ...entry, editedAfterUnlock: window.state === 'UNLOCKED', previousValue: previous ?? null }];
@@ -1167,7 +1165,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     const status = ['UNAUTHENTICATED', 'INVALID_TOKEN'].includes(message) ? 401
       : ['FORBIDDEN', 'ACCOUNT_DISABLED', 'PROFILE_NOT_FOUND', 'ORIGIN_NOT_ALLOWED'].includes(message) ? 403
         : ['NOT_FOUND', 'Usuario no encontrado.'].includes(message) ? 404
-          : message === 'El nombre de usuario ya está en uso.' || ['DUPLICATE_CANDIDATE', 'EVALUATION_ALREADY_RECORDED', 'OJT_DAY_ALREADY_RECORDED', 'ATTENDANCE_UNLOCK_ALREADY_REQUESTED'].includes(message) ? 409
+          : message === 'El nombre de usuario ya está en uso.' || ['DUPLICATE_CANDIDATE', 'EVALUATION_ALREADY_RECORDED', 'OJT_DAY_ALREADY_RECORDED', 'ATTENDANCE_UNLOCK_ALREADY_REQUESTED', 'CANDIDATE_ALREADY_IN_TRAINING', 'CANDIDATE_NOT_READY_FOR_TRAINING'].includes(message) ? 409
             : message.startsWith('GOOGLE_AUTH_') || message.startsWith('IDENTITY_') || message.startsWith('FIRESTORE_') ? 502
               : 400;
     return response({ message }, status, headers);

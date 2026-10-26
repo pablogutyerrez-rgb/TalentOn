@@ -84,6 +84,9 @@ const candidateFromFirestore = (id: string, data: Record<string, unknown>): Cand
 
   return {
     ...candidate,
+    dni: typeof candidate.dni === 'string' ? candidate.dni : '',
+    phone: typeof candidate.phone === 'string' ? candidate.phone : '',
+    email: typeof candidate.email === 'string' ? candidate.email : '',
     firstName: firstName || candidate.firstName,
     lastName: lastName || candidate.lastName,
     fullName: sanitizeDisplayName(candidate.fullName || combinedName, 'Nombre no registrado'),

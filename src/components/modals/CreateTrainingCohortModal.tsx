@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   GraduationCap, 
@@ -20,6 +20,7 @@ import {
 import { useTalent } from '../../context/TalentContext';
 import { CampaignCall, CandidateRecord } from '../../types';
 import { getWorkerErrorMessage } from '../../services/workerApi';
+import { isCandidateAlreadyInTraining, isCandidateReadyForTraining } from '../../utils/trainingEligibility';
 
 interface CreateTrainingCohortModalProps {
   isOpen: boolean;
@@ -65,6 +66,9 @@ export const CreateTrainingCohortModal: React.FC<CreateTrainingCohortModalProps>
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const selectionCampaignRef = useRef('');
+  const selectionInitializedRef = useRef(false);
+  const defaultsCampaignRef = useRef('');
 
   // Update defaults when initial campaign or campaign selection changes
   useEffect(() => {
@@ -77,12 +81,21 @@ export const CreateTrainingCohortModal: React.FC<CreateTrainingCohortModalProps>
 
   // When selectedCampaignId changes, pre-fill code and name
   useEffect(() => {
-    if (selectedCampaignId) {
+    if (!isOpen) {
+      defaultsCampaignRef.current = '';
+      return;
+    }
+    if (selectedCampaignId && defaultsCampaignRef.current !== selectedCampaignId) {
+      defaultsCampaignRef.current = selectedCampaignId;
       const camp = campaigns.find(c => c.id === selectedCampaignId);
       const randomNum = Math.floor(10 + Math.random() * 90);
       const nextCode = `CAP-2026-${camp?.code?.replace('CONV-', '') || '01'}-${randomNum}`;
       setCode(nextCode);
       setName(`Capacitación Inicial - ${camp?.title || 'Servicio'}`);
+      const campaignModality = camp?.managementType || 'PRESENCIAL';
+      setModality(campaignModality);
+      setLocation(campaignModality === 'REMOTO' ? 'Home Office' : camp?.location || 'Sede Central - Lima Centro');
+      setRoomOrLink(campaignModality === 'REMOTO' ? 'Microsoft Teams / Enlace Virtual' : 'Sala de Capacitación 302');
       
       // Calculate estimated default dates (starting next Monday)
       const today = new Date();
@@ -100,28 +113,36 @@ export const CreateTrainingCohortModal: React.FC<CreateTrainingCohortModalProps>
       setOjtStartDate(ojtStart.toISOString().split('T')[0]);
       setOjtEndDate(ojtEnd.toISOString().split('T')[0]);
 
-      // Pre-select all candidates who are Apto para capacitación for this campaign
-      const aptos = candidates.filter(
-        c => c.campaignId === selectedCampaignId && 
-        (c.currentStage === 'APTO_CAPACITACION' || c.selection?.stage === 'APTO_CAPACITACION')
-      );
-      setSelectedCandidateIds(aptos.map(c => c.id));
     }
-  }, [selectedCampaignId, campaigns, candidates]);
+  }, [isOpen, selectedCampaignId, campaigns]);
+
+  useEffect(() => {
+    if (!isOpen || !selectedCampaignId) {
+      selectionCampaignRef.current = '';
+      selectionInitializedRef.current = false;
+      return;
+    }
+    const availableIds = new Set(candidates.filter(c => isCandidateReadyForTraining(c, selectedCampaignId)).map(c => c.id));
+    const campaignChanged = selectionCampaignRef.current !== selectedCampaignId;
+    selectionCampaignRef.current = selectedCampaignId;
+    if (campaignChanged) selectionInitializedRef.current = false;
+    const shouldSelectDefaults = !selectionInitializedRef.current && availableIds.size > 0;
+    if (shouldSelectDefaults) selectionInitializedRef.current = true;
+    setSelectedCandidateIds(current => shouldSelectDefaults
+      ? [...availableIds]
+      : current.filter(id => availableIds.has(id)));
+  }, [isOpen, selectedCampaignId, candidates]);
 
   if (!isOpen) return null;
 
   const currentCampaign = campaigns.find(c => c.id === selectedCampaignId);
   
-  // Eligible candidates: Strictly APTO_CAPACITACION in this specific campaign
-  const eligibleCandidates = candidates.filter(cand => {
-    if (!selectedCampaignId) return false;
-    const isCampMatch = cand.campaignId === selectedCampaignId;
-    const isApto = cand.selection?.stage === 'APTO_CAPACITACION' || cand.currentStage === 'APTO_CAPACITACION';
-    return isCampMatch && isApto;
-  });
+  const aptCandidates = candidates.filter(cand => selectedCampaignId && cand.campaignId === selectedCampaignId && cand.selection?.stage === 'APTO_CAPACITACION');
+  const eligibleCandidates = aptCandidates.filter(cand => isCandidateReadyForTraining(cand, selectedCampaignId));
+  const assignedCandidates = aptCandidates.filter(isCandidateAlreadyInTraining);
+  const availableIds = new Set(eligibleCandidates.map(cand => cand.id));
 
-  const filteredCandidates = eligibleCandidates.filter(c => {
+  const filteredCandidates = aptCandidates.filter(c => {
     const matchSearch = c.fullName.toLowerCase().includes(searchTerm.toLowerCase()) || 
                         c.dni.includes(searchTerm) ||
                         c.email.toLowerCase().includes(searchTerm.toLowerCase());
@@ -129,13 +150,14 @@ export const CreateTrainingCohortModal: React.FC<CreateTrainingCohortModalProps>
   });
 
   const toggleSelectCandidate = (id: string) => {
+    if (!availableIds.has(id)) return;
     setSelectedCandidateIds(prev => 
       prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
     );
   };
 
   const handleSelectAll = () => {
-    if (selectedCandidateIds.length === eligibleCandidates.length) {
+    if (eligibleCandidates.length > 0 && selectedCandidateIds.length === eligibleCandidates.length) {
       setSelectedCandidateIds([]);
     } else {
       setSelectedCandidateIds(eligibleCandidates.map(c => c.id));
@@ -168,6 +190,10 @@ export const CreateTrainingCohortModal: React.FC<CreateTrainingCohortModalProps>
       setErrorMsg('Debe seleccionar al menos un postulante apto para iniciar el grupo de capacitación.');
       return;
     }
+    if (selectedCandidateIds.some(id => !availableIds.has(id))) {
+      setErrorMsg('La disponibilidad de los postulantes cambió. Actualiza la lista antes de crear la capacitación.');
+      return;
+    }
 
     try {
       setIsSubmitting(true);
@@ -194,6 +220,9 @@ export const CreateTrainingCohortModal: React.FC<CreateTrainingCohortModalProps>
       setSelectedCohortId(createdCohort.id);
     } catch (error: unknown) {
       setErrorMsg(getWorkerErrorMessage(error, 'No se pudo crear la capacitación. Revisa los datos e inténtalo nuevamente.'));
+      if (error instanceof Error && ['CANDIDATE_ALREADY_IN_TRAINING', 'CANDIDATE_NOT_READY_FOR_TRAINING'].includes(error.message)) {
+        window.dispatchEvent(new Event('talent:data-changed'));
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -369,6 +398,11 @@ export const CreateTrainingCohortModal: React.FC<CreateTrainingCohortModalProps>
                 <option value="REMOTO">Remoto (Home Office)</option>
                 <option value="HIBRIDO">Híbrido</option>
               </select>
+              {currentCampaign?.managementType && modality !== currentCampaign.managementType && (
+                <p className="text-xs text-amber-700" role="status">
+                  La convocatoria indica modalidad {currentCampaign.managementType.toLowerCase()}. Confirma si este grupo tendrá una modalidad distinta.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1">
@@ -457,17 +491,23 @@ export const CreateTrainingCohortModal: React.FC<CreateTrainingCohortModalProps>
               <div>
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <Users className="w-4 h-4 text-indigo-600" />
-                  Seleccionar Postulantes Aptos ({selectedCandidateIds.length} seleccionados de {eligibleCandidates.length} aptos)
+                  Seleccionar Postulantes Aptos ({selectedCandidateIds.length} seleccionados de {eligibleCandidates.length} disponibles)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Candidatos de la convocatoria con estado "Apto para capacitación" que ingresarán a este grupo.
+                  Solo se pueden seleccionar postulantes aptos que aún no pertenecen a otro grupo.
                 </p>
+                {assignedCandidates.length > 0 && (
+                  <p className="mt-1 text-xs font-medium text-amber-700">
+                    {assignedCandidates.length} ya {assignedCandidates.length === 1 ? 'está inscrito' : 'están inscritos'} en capacitación y no se incluirán.
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={handleSelectAll}
+                  disabled={eligibleCandidates.length === 0}
                   className="px-2.5 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-md border border-indigo-200 transition-colors"
                 >
                   {selectedCandidateIds.length === eligibleCandidates.length ? 'Deseleccionar Todos' : 'Seleccionar Todos'}
@@ -476,7 +516,7 @@ export const CreateTrainingCohortModal: React.FC<CreateTrainingCohortModalProps>
             </div>
 
             {/* Postulantes list */}
-            {eligibleCandidates.length === 0 ? (
+            {aptCandidates.length === 0 ? (
               <div className="p-6 text-center border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">
                 <p className="text-sm font-medium text-slate-600">
                   No hay candidatos en estado "Apto para capacitación" para esta convocatoria.
@@ -489,12 +529,23 @@ export const CreateTrainingCohortModal: React.FC<CreateTrainingCohortModalProps>
               <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white">
                 {filteredCandidates.map(cand => {
                   const isSelected = selectedCandidateIds.includes(cand.id);
+                  const alreadyAssigned = isCandidateAlreadyInTraining(cand);
                   return (
                     <div
                       key={cand.id}
                       onClick={() => toggleSelectCandidate(cand.id)}
-                      className={`p-3 flex items-center justify-between cursor-pointer transition-colors ${
-                        isSelected ? 'bg-indigo-50/60' : 'hover:bg-slate-50'
+                      role="checkbox"
+                      aria-checked={isSelected}
+                      aria-disabled={alreadyAssigned}
+                      tabIndex={alreadyAssigned ? -1 : 0}
+                      onKeyDown={event => {
+                        if (!alreadyAssigned && (event.key === ' ' || event.key === 'Enter')) {
+                          event.preventDefault();
+                          toggleSelectCandidate(cand.id);
+                        }
+                      }}
+                      className={`p-3 flex items-center justify-between transition-colors ${
+                        alreadyAssigned ? 'cursor-not-allowed bg-slate-50 opacity-70' : isSelected ? 'cursor-pointer bg-indigo-50/60' : 'cursor-pointer hover:bg-slate-50'
                       }`}
                     >
                       <div className="flex items-center gap-3">
@@ -526,8 +577,8 @@ export const CreateTrainingCohortModal: React.FC<CreateTrainingCohortModalProps>
                             Score: {cand.selection.scoreTotal} pts
                           </span>
                         )}
-                        <span className="text-xs font-medium px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
-                          Apto para capacitación
+                        <span className={`text-xs font-medium px-2 py-0.5 border rounded-full ${alreadyAssigned ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                          {alreadyAssigned ? `Ya asignado${cand.training?.cohortCode ? ` · ${cand.training.cohortCode}` : ''}` : 'Disponible para capacitación'}
                         </span>
                       </div>
                     </div>
