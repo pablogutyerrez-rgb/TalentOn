@@ -130,6 +130,25 @@ describe('Selección Fase 2', () => {
 });
 afterEach(() => vi.unstubAllGlobals());
 describe('Captación', () => {
+  it('exporta todas las versiones de formularios dentro del alcance sin el límite de la bandeja', async () => {
+    documents.set('candidates/person', { companyId: owner.companyId, recruiterId: owner.uid });
+    for (let index = 0; index < 205; index++) documents.set(`captations/event-${index}`, {
+      companyId: owner.companyId, candidateId: 'person', ownerUid: owner.uid, createdAt: `2026-10-26T00:00:${String(index % 60).padStart(2, '0')}Z`,
+      applicant: { formSubmission: { revision: index + 1, title: 'Formulario', questions: [{ id: 'custom', label: 'Pregunta personalizable' }], answers: { custom: `Respuesta ${index}` }, attachments: [{ id: 'cvFile', name: 'cv.pdf', size: 123, objectKey: 'private/storage-key' }] } },
+    });
+    documents.set('captations/foreign-owner', { companyId: owner.companyId, candidateId: 'person', ownerUid: 'other', applicant: { formSubmission: { answers: { private: 'No visible' } } } });
+    documents.set('captations/foreign-company', { companyId: 'company-2', candidateId: 'person', ownerUid: owner.uid, applicant: {} });
+    const recruiter = await (await call('/api/capture/export'))!.json() as any;
+    expect(recruiter.total).toBe(205);
+    expect(recruiter.items).toHaveLength(205);
+    expect(recruiter.items.find((event: any) => event.id === 'event-204').applicant.formSubmission.answers.custom).toBe('Respuesta 204');
+    expect(recruiter.items[0].applicant.formSubmission.attachments[0].objectKey).toBeUndefined();
+    expect(recruiter.items.every((event: any) => event.possibleIds === undefined)).toBe(true);
+    const chief = await (await call('/api/capture/export', 'GET', undefined, { ...owner, role: 'JEFE_SELECCION', uid: 'chief' }))!.json() as any;
+    expect(chief.total).toBe(206);
+    const analyst = await (await call('/api/capture/export', 'GET', undefined, { ...owner, role: 'ANALISTA_SELECCION', uid: 'analyst', subordinateUserIds: [owner.uid] }))!.json() as any;
+    expect(analyst.total).toBe(205);
+  });
   it('admin ve consolidado global y responsables de distintas empresas', async () => {
     documents.set('users/other', { role: 'RECLUTADOR', companyId: 'company-2', displayName: 'Otro responsable' });
     documents.set('captations/foreign', { companyId: 'company-2', ownerUid: 'other', applicant: {}, possibleIds: ['candidate'] });

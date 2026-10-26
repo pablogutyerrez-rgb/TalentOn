@@ -18,13 +18,13 @@ export async function unifiedRequest(request:Request,env:Env,dispatch:Dispatch):
  url.pathname=url.pathname.split('/').map(part=>{const parsed=readCandidateKey(decodeURIComponent(part));if(!parsed)return part;requestedCompanies.add(parsed.company);return encodeURIComponent(parsed.id);}).join('/');
  const context=(company:string)=>rpc(env,'talent_org_context',{p_actor:actor.authUserId,p_company:company}) as Promise<SessionProfile>;
  const run=(ctx:SessionProfile)=>{const h=new Headers(headers);h.set('X-Talent-Company',ctx.companyId);return dispatch(new Request(url,{method:request.method,headers:h,...(!['GET','HEAD'].includes(request.method)?{body:rewrittenBody??request.clone().body,duplex:'half'}:{})} as RequestInit),{...env,VERIFIED_SESSION:ctx});};
- if(request.method==='GET'&&['/api/session','/api/bootstrap','/api/capture/management','/api/capture/links','/api/capture/inbox'].includes(path)){
+ if(request.method==='GET'&&['/api/session','/api/bootstrap','/api/capture/management','/api/capture/links','/api/capture/inbox','/api/capture/export'].includes(path)){
   const contexts:SessionProfile[]=[];
   for(const c of actor.companies||[{id:actor.companyId}])contexts.push(await context(c.id));
   if(path==='/api/session')return Response.json({...actor,unified:true,scope:[...new Set(contexts.flatMap(c=>c.scope||[]))],companyCampaigns:[...new Set(contexts.flatMap(c=>c.companyCampaigns||[]))],allowedModules:[...new Set(contexts.flatMap(c=>c.allowedModules))]});
   const chunks:({company:SessionProfile;data:any}|null)[]=[];
   for(const c of contexts){
-   const result=await run(c);if(result.status===403&&path!=='/api/bootstrap'){chunks.push(null);continue;}
+   const result=await run(c);if(result.status===403&&path!=='/api/bootstrap'&&(path!=='/api/capture/export'||c.role!=='ADMIN'&&!c.allowedModules.includes('SELECCION'))){chunks.push(null);continue;}
    if(!result.ok)throw new SupabaseError(result.status,'UNIFIED_READ_FAILED');
    chunks.push({company:c,data:await result.json<any>()});
   }
@@ -35,6 +35,10 @@ export async function unifiedRequest(request:Request,env:Env,dispatch:Dispatch):
    return Response.json({campaigns:merge('campaigns'),cohorts:merge('cohorts'),candidates:merge('candidates'),users:[...users.values()]});
   }
   if(path==='/api/capture/management')return Response.json({owners:merge('owners'),links:merge('links'),events:merge('events'),generatedAt:new Date().toISOString()});
+  if(path==='/api/capture/export'){
+   const items=chunks.flatMap(chunk=>(chunk?.data.items||[]).map((event:any)=>({...event,candidateId:candidateKey(chunk!.company.companyId,event.candidateId),companyName:actor.companies?.find(c=>c.id===chunk!.company.companyId)?.name||event.companyName})));
+   return Response.json({items,total:items.length});
+  }
   return Response.json({items:merge('items'),truncated:chunks.some(c=>c?.data.truncated)});
  }
  let input:Record<string,any>={};

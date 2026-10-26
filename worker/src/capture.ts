@@ -70,6 +70,12 @@ export class Store {
     const result = await this.call(':runQuery', { ...(tx ? { transaction: tx } : {}), structuredQuery: { from: [{ collectionId: collection }], ...(ff.length ? { where: ff.length === 1 ? ff[0] : { compositeFilter: { op: 'AND', filters: ff } } } : {}), limit } });
     return result.flatMap((item: any) => item.document ? [{ ...this.helpers.decode(item.document.fields || {}), id: item.document.name.split('/').pop() }] : []);
   }
+  async queryAll(collection: string, filters: Data): Promise<Data[]> {
+    if (this.env.DATA_PROVIDER !== 'firebase') return this.env.RELATIONAL_RUNTIME!.query(collection, filters, Number.MAX_SAFE_INTEGER);
+    const ff = Object.entries(filters).map(([fieldPath, value]) => ({ fieldFilter: { field: { fieldPath }, op: 'EQUAL', value: this.helpers.encode({ value }).value } }));
+    const result = await this.call(':runQuery', { structuredQuery: { from: [{ collectionId: collection }], ...(ff.length ? { where: ff.length === 1 ? ff[0] : { compositeFilter: { op: 'AND', filters: ff } } } : {}) } });
+    return result.flatMap((item: any) => item.document ? [{ ...this.helpers.decode(item.document.fields || {}), id: item.document.name.split('/').pop() }] : []);
+  }
   async atomic<T>(work: (tx: string) => Promise<{ result: T; writes: { path: string; data: Data; create?: boolean; patch?: boolean }[] }>): Promise<T> {
     if(this.env.DATA_PROVIDER!=='firebase') { const result=await work('RELATIONAL_REQUEST_TRANSACTION');for(const w of result.writes)await this.env.RELATIONAL_RUNTIME!.write(w.path,w.data,w.create);return result.result; }
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -109,7 +115,7 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
   const reply = (value: unknown, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
   if (!actor && !path.startsWith('/api/public/')) return;
   if (actor) allowed(actor);
-  if (actor?.role === 'JEFE_SELECCION' && !/^\/api\/capture\/(?:candidates\/[a-zA-Z0-9_-]{1,100}|attachments\/[a-f0-9-]{36}\/[a-zA-Z][a-zA-Z0-9_]{0,63})$/.test(path)) throw new CaptureError('FORBIDDEN', 403);
+  if (actor?.role === 'JEFE_SELECCION' && !/^\/api\/capture\/(?:export|candidates\/[a-zA-Z0-9_-]{1,100}|attachments\/[a-f0-9-]{36}\/[a-zA-Z][a-zA-Z0-9_]{0,63})$/.test(path)) throw new CaptureError('FORBIDDEN', 403);
   const store = new Store(env, helpers, await helpers.token(env));
   const managerOwners = async () => {
     const users = await store.query('users', actor?.role === 'ADMIN' ? {} : { companyId: actor?.companyId }, undefined, 2001);
@@ -125,6 +131,26 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
       )
     );
   };
+  if (path === '/api/capture/export' && request.method === 'GET') {
+    const [events, people] = await Promise.all([
+      store.queryAll('captations', { companyId: actor!.companyId }),
+      store.queryAll('candidates', { companyId: actor!.companyId }),
+    ]);
+    const byId = new Map(people.map(person => [person.id, person]));
+    const supervised = actor!.role === 'ANALISTA_SELECCION' ? new Set((await managerOwners()).map(user => user.uid)) : new Set<string>();
+    const items = events.filter(event => {
+      const person = byId.get(event.candidateId);
+      return person && mayReadEvent(person, event, supervised);
+    }).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+      .map(({ possibleIds, ...event }) => ({ ...event, applicant: {
+        ...event.applicant,
+        ...(event.applicant?.formSubmission ? { formSubmission: {
+          ...event.applicant.formSubmission,
+          attachments: (event.applicant.formSubmission.attachments || []).map(({ objectKey, ...attachment }: Data) => attachment),
+        } } : {}),
+      } }));
+    return reply({ items, total: items.length });
+  }
   if (path === '/api/capture/management' && request.method === 'GET') {
     if (!actor || !['ADMIN', 'ANALISTA_SELECCION'].includes(actor.role)) throw new CaptureError('FORBIDDEN', 403);
     const owners = await managerOwners(), ids = new Set(owners.map(u => u.uid));

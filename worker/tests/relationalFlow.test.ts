@@ -216,6 +216,12 @@ describe('Transición relacional PostgreSQL 17',()=>{
   const applicant={...registrationAnswers,preferredCampaign:campaignId,requestId:crypto.randomUUID(),fullName:'CI Captado',phone:'912345678',email:'fixture@example.test',documentType:'DNI',documentNumber:'99900003',district:'Lima',turnstileToken:'test-token'};
   expect((await publicRequest(applicant)).status).toBe(201);expect((await publicRequest(applicant)).status).toBe(201);
   const manager=await call('/api/capture/management');expect(manager.status).toBe(200);expect(manager.data.events).toHaveLength(1);expect(manager.data.events[0].applicant.fullName).toBe('CI Captado');
+  const exported=await call('/api/capture/export');expect(exported.status).toBe(200);expect(exported.data.total).toBe(1);expect(exported.data.items[0].applicant.techCenterAnswers).toMatchObject({workday:'Full time',availability:'Turno tarde'});
+  env.ORG_ENABLED='true';
+  try{
+   const unified=await call('/api/capture/export?unified=1');expect(unified.status).toBe(200);
+   expect(unified.data.items.find((event:any)=>event.id===manager.data.events[0].id)?.candidateId).toBe('uc.tenant.'+manager.data.events[0].candidateId);
+  }finally{env.ORG_ENABLED=undefined;}
   const dossier=await call('/api/capture/candidates/'+manager.data.events[0].candidateId);
   expect(dossier.status).toBe(200);
   expect(dossier.data.events[0].applicant.techCenterAnswers).toMatchObject({contactCenterExperience:'No',workday:'Full time',availability:'Turno tarde',modality:'Presencial'});
