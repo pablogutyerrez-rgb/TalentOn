@@ -130,6 +130,17 @@ describe('Selección Fase 2', () => {
 });
 afterEach(() => vi.unstubAllGlobals());
 describe('Captación', () => {
+  it('muestra todo el historial de formularios de un candidato, incluso después de 501 captaciones', async () => {
+    documents.set('candidates/person', { companyId: owner.companyId, recruiterId: owner.uid });
+    for (let index = 0; index < 502; index++) documents.set(`captations/history-${index}`, {
+      companyId: owner.companyId, candidateId: 'person', ownerUid: owner.uid, createdAt: new Date(2026, 9, 1, 0, 0, index).toISOString(),
+      applicant: { formSubmission: { title: 'Formulario', questions: [{ id: 'experienceDetails', label: 'Experiencia' }], answers: { experienceDetails: `Experiencia ${index}` }, attachments: [] } },
+    });
+    const response = await call('/api/capture/candidates/person');
+    const dossier = await response!.json() as any;
+    expect(dossier.events).toHaveLength(502);
+    expect(dossier.events.at(-1).applicant.formSubmission.answers.experienceDetails).toBe('Experiencia 501');
+  });
   it('exporta todas las versiones de formularios dentro del alcance sin el límite de la bandeja', async () => {
     documents.set('candidates/person', { companyId: owner.companyId, recruiterId: owner.uid });
     for (let index = 0; index < 205; index++) documents.set(`captations/event-${index}`, {

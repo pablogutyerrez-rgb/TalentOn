@@ -40,7 +40,7 @@ export const techCenterSections: { title: string; hint?: string; when?: TechCent
     { key: 'availability', label: '15. ¿En qué turno tienes disponibilidad para trabajar?', required: true, options: captureShifts },
     { key: 'commitments', label: '16. ¿Actualmente tienes compromisos laborales o académicos que podrían coincidir con el horario de trabajo?', required: true, options: ['No','Sí (indicar disponibilidad)'] },
     { key: 'commitmentsDetails', label: 'Indica tu disponibilidad', required: true, type: 'textarea', max: 1000, when: v => v.commitments === 'Sí (indicar disponibilidad)' },
-    { key: 'modality', label: '17. Modalidad de trabajo de la campaña', required: true, options: ['Presencial','Remota'] },
+    { key: 'modality', label: '17. ¿Qué modalidad de trabajo prefieres? (Sujeta a disponibilidad de la campaña)', required: true, options: [{value:'Presencial',label:'Presencial'},{value:'Remota',label:'Remoto'}] },
   ]},
   { title: '4. HERRAMIENTAS DE TRABAJO', hint: 'Estas preguntas corresponden a una campaña remota.', when: v => v.modality === 'Remota', fields: [
     { key: 'computer', label: '18. ¿Cuentas con computadora o laptop disponible para trabajar?', options: ['Sí','No'] },
@@ -59,26 +59,24 @@ export function selectedCaptureConfig(values: Record<string, unknown>, campaigns
   const campaign=campaigns.find(c=>c.id===values.preferredCampaign);
   return campaign ? publicCaptureConfig(campaign.configuration) : undefined;
 }
-export function changeCaptureAnswer(values: Record<string,string>, key: string, value: string, campaigns: CaptureCampaignOption[]) {
+export function changeCaptureAnswer(values: Record<string,string>, key: string, value: string, _campaigns: CaptureCampaignOption[]) {
   const next = {...values, [key]:value};
   if (key === 'preferredCampaign') {
     for (const name of ['workday','availability','modality','computer','usbHeadset','internet']) delete next[name];
-    const config = selectedCaptureConfig(next,campaigns);
-    if(config&&config.modality!=='Preferencia') next.modality = config.modality;
   }
   return next;
 }
 export function companySections(companyName: string, campaigns: CaptureCampaignOption[], values: Record<string, unknown> = {}) {
   const config = selectedCaptureConfig(values,campaigns);
   return techCenterSections.map(section => ({...section,
-    ...(section.title.startsWith('4.') ? {when: () => config?.modality === 'Preferencia' ? values.modality === 'Remota' : config?.modality === 'Remota'} : {}),
+    ...(section.title.startsWith('4.') ? {when: () => values.modality === 'Remota'} : {}),
     fields:section.fields.map(field=>({
     ...field,label:companyText(field.label,companyName),
     ...(field.key==='preferredCampaign'?{options:campaigns.map(c=>({value:c.id,label:c.name})),max:240}:{}),
     ...(field.key==='age'?{minValue:config?.minAge ?? 0,maxValue:config?.maxAge ?? 120,hint:config ? (config.maxAge===null ? 'Edad mínima: '+config.minAge+' años.' : 'Rango de edad: '+config.minAge+' a '+config.maxAge+' años.') : 'Selecciona una campaña para consultar el rango de edad.'}:{}),
     ...(field.key==='workday'?{options:config?.workdays || [],hint:'Opciones ofrecidas por la campaña seleccionada.'}:{}),
     ...(field.key==='availability'?{options:config?.schedules || [],hint:'Turnos disponibles: mañana y tarde.'}:{}),
-    ...(field.key==='modality'?{options:config ? config.modality==='Preferencia'?['Presencial','Remota']:[config.modality] : [],...(config?.modality==='Preferencia'?{label:'17. ¿Qué modalidad de trabajo prefieres? (Sujeta a disponibilidad de la campaña)'}:{})}:{}),
+    ...(field.key==='modality'?{options:config ? [{value:'Presencial',label:'Presencial'},{value:'Remota',label:'Remoto'}] : [],label:'17. ¿Qué modalidad de trabajo prefieres? (Sujeta a disponibilidad de la campaña)'}:{}),
   }))}));
 }
 export function visibleTechCenterFields(values: Record<string, unknown>, campaigns?: CaptureCampaignOption[]) {

@@ -323,7 +323,7 @@ export async function handleCapture(request: Request, env: Env, actor: Actor | u
     const candidate = await store.get(`candidates/${dossier[1]}`); if (!candidate) throw new CaptureError('NOT_FOUND', 404);
     if (actor.role !== 'ADMIN' && candidate.companyId !== actor.companyId) throw new CaptureError('FORBIDDEN', 403);
     const supervised = actor.role === 'ANALISTA_SELECCION' ? new Set((await managerOwners()).map(u => u.uid)) : new Set<string>();
-    const events = (await store.query('captations', { candidateId: dossier[1] }, undefined, 501)).filter(e => mayReadEvent(candidate,e,supervised));
+    const events = (await store.queryAll('captations', { candidateId: dossier[1] })).filter(e => mayReadEvent(candidate,e,supervised));
     if (!events.length) throw new CaptureError('FORBIDDEN', 403);
     // A recruiter sees only personal information they received, never another recruiter's history.
     const applicant = actor.role === 'ADMIN' ? { fullName: candidate.fullName, phone: candidate.phone, email: candidate.email, documentType: candidate.documentType || 'DNI', documentNumber: candidate.documentNumber || candidate.dni, district: candidate.district || candidate.city } : events[0].applicant;

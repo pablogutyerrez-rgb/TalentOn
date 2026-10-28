@@ -50,11 +50,10 @@ import {
 import { DiscardCandidateModal } from '../modals/DiscardCandidateModal';
 import { DocumentacionContratacionTab } from './DocumentacionContratacionTab';
 import { getExpedientAnalysis } from '../../utils/expedientUtils';
-import { getWorkerErrorMessage } from '../../services/workerApi';
+import { getWorkerErrorMessage, WorkerApiError } from '../../services/workerApi';
 import { captureApi, CaptureDossier } from '../../services/captureApi';
 import { CaptureDossierPanel } from './CaptureDossierPanel';
-import { CaptureFormAnswers } from '../capture/CaptureFormAnswers';
-import { TechCenterAnswers } from '../capture/TechCenterAnswers';
+import { CaptureApplicantDetails } from '../capture/CaptureApplicantDetails';
 import { SelectionAdvancedPanel } from './SelectionAdvancedPanel';
 
 interface Candidate360ModalProps {
@@ -88,7 +87,7 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
   const [captureDossier, setCaptureDossier] = useState<CaptureDossier | null>(null);
   const [captureHistoryOpen, setCaptureHistoryOpen] = useState(false);
   const [captureLoading, setCaptureLoading] = useState(false);
-  const [captureUnavailable, setCaptureUnavailable] = useState(false);
+  const [captureIssue, setCaptureIssue] = useState('');
   const [isDiscardModalOpen, setIsDiscardModalOpen] = useState(false);
   const [cvDownloading, setCvDownloading] = useState(false);
   const [cvError, setCvError] = useState('');
@@ -123,14 +122,16 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
   useEffect(() => {
     setCaptureDossier(null);
     setCaptureHistoryOpen(false);
-    setCaptureUnavailable(false);
+    setCaptureIssue('');
     if (!candidateId || !['ADMIN', 'RECLUTADOR', 'ANALISTA_SELECCION', 'JEFE_SELECCION'].includes(currentUser.role)) return;
     let cancelled = false;
     setCaptureLoading(true);
     void captureApi.dossier(candidateId).then(dossier => {
       if (!cancelled) setCaptureDossier(dossier);
-    }).catch(() => {
-      if (!cancelled) setCaptureUnavailable(true);
+    }).catch(error => {
+      if (!cancelled) setCaptureIssue(error instanceof WorkerApiError && [403,404].includes(error.status)
+        ? 'No hay respuestas de captación asociadas a este candidato dentro de tus permisos.'
+        : getWorkerErrorMessage(error, 'No se pudieron cargar las respuestas de captación. Actualiza e inténtalo nuevamente.'));
     }).finally(() => {
       if (!cancelled) setCaptureLoading(false);
     });
@@ -562,14 +563,13 @@ export const Candidate360Modal: React.FC<Candidate360ModalProps> = ({
 
                 {['ADMIN', 'RECLUTADOR', 'ANALISTA_SELECCION', 'JEFE_SELECCION'].includes(currentUser.role) && <section className="rounded-xl border border-slate-200 bg-white p-5">
                   <h4 className="text-sm font-bold text-[#0B2847]">Información declarada en el formulario de postulación</h4>
-                  <p className="mt-1 text-xs text-slate-500">Se muestran las respuestas originales de cada captación disponible, incluidas experiencia, jornada y turno.</p>
+                  <p className="mt-1 text-xs text-slate-500">Cada registro muestra los datos enviados, todas las preguntas y respuestas originales, campos sin respuesta y adjuntos. El historial se conserva por fecha de captación.</p>
                   {captureLoading && <p className="mt-4 text-sm text-slate-500">Cargando respuestas…</p>}
-                  {!captureLoading && captureUnavailable && <p className="mt-4 text-sm text-slate-500">No hay respuestas de captación disponibles dentro de tu alcance.</p>}
+                  {!captureLoading && captureIssue && <p role="status" className="mt-4 text-sm text-slate-500">{captureIssue}</p>}
+                  {!captureLoading && !captureIssue && captureDossier && !captureEvents.length && <p className="mt-4 text-sm text-slate-500">Este candidato no tiene respuestas de captación registradas.</p>}
                   {!captureLoading && captureEvents.slice().reverse().map(event => <div key={event.id} className="mt-4 border-t border-slate-200 pt-3">
                     <p className="text-xs font-semibold text-slate-600">{event.source} · {new Date(event.createdAt).toLocaleDateString('es-PE')}</p>
-                    {event.applicant.formSubmission
-                      ? <CaptureFormAnswers eventId={event.id} submission={event.applicant.formSubmission} inline />
-                      : <TechCenterAnswers answers={event.applicant.techCenterAnswers} inline />}
+                    <CaptureApplicantDetails event={event} />
                   </div>)}
                 </section>}
 

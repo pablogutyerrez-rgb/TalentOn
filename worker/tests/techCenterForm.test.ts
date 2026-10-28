@@ -55,21 +55,23 @@ describe('Formulario TECH CENTER',()=>{
  it('valida edad, jornada, horarios y modalidad del catálogo; no acepta configuración del navegador',()=>{
   const campaigns=[{id:'a',name:'A',configuration:config}];
   const values={...techApplicant,preferredCampaign:'a'};
-  for(const override of [{age:'17'},{age:'61'},{age:'25.5'},{workday:'Part time'},{availability:'Noche'},{modality:'Remota'},{modality:'Ambas modalidades'}])
+  for(const override of [{age:'17'},{age:'61'},{age:'25.5'},{workday:'Part time'},{availability:'Noche'},{modality:'Ambas modalidades'}])
    expect(()=>captureInput({...values,...override,configuration:{...config,workdays:['Part time']}},true,campaigns)).toThrow();
+  expect(()=>captureInput({...values,modality:'Remota',computer:'Sí'},true,campaigns)).not.toThrow();
   for(const age of ['18','60'])expect(()=>captureInput({...values,age},true,campaigns)).not.toThrow();
   expect(()=>captureInput(values,true,[{id:'a',name:'A'}])).not.toThrow();
   expect(()=>captureInput(values,true,[{id:'a',name:'A',configuration:{} as CaptureCampaignConfig}])).toThrow();
   expect(()=>captureInput({...values,age:'90'},true,[{...campaigns[0],configuration:{...config,maxAge:null}}])).not.toThrow();
  });
- it('limpia respuestas al cambiar de campaña; equipos se muestran por configuración, no por valor manipulado',()=>{
+ it('limpia respuestas al cambiar de campaña; equipos dependen de la modalidad elegida',()=>{
   const campaigns=[{id:'a',name:'A',configuration:config},{id:'b',name:'B',configuration:{...config,modality:'Remota' as const}}];
   const {privacyAcknowledged,...formValues}=techApplicant;
   const next=changeCaptureAnswer({...formValues,computer:'Sí'},'preferredCampaign','b',campaigns);
-  expect(next).toMatchObject({modality:'Remota',preferredCampaign:'b',fullName:techApplicant.fullName});
+  expect(next).toMatchObject({preferredCampaign:'b',fullName:techApplicant.fullName});
+  expect(next).not.toHaveProperty('modality');
   expect(next).not.toHaveProperty('workday');expect(next).not.toHaveProperty('computer');
-  expect(visibleTechCenterFields({...next,modality:'Presencial'},campaigns).some(f=>f.key==='computer')).toBe(true);
-  expect(visibleTechCenterFields({...next,preferredCampaign:'a',modality:'Remota'},campaigns).some(f=>f.key==='computer')).toBe(false);
+  expect(visibleTechCenterFields({...next,modality:'Presencial'},campaigns).some(f=>f.key==='computer')).toBe(false);
+  expect(visibleTechCenterFields({...next,preferredCampaign:'a',modality:'Remota'},campaigns).some(f=>f.key==='computer')).toBe(true);
  });
  it('experiencia afirmativa exige meses y campañas; CONADIS es opcional Sí/No',()=>{
   for(const experienceMonths of ['', '0','-1','1.5'])
@@ -87,11 +89,13 @@ describe('Formulario TECH CENTER',()=>{
   expect(publicCaptureConfig(config)).toEqual(config);
   expect(publicCaptureConfig({})).toBeUndefined();
   const campaigns=[{id:'sin-config',name:'Sin configuración',configuration:null},{id:'con-config',name:'Configurada',configuration:config}];
-  expect(companySections('Talent Up',campaigns,{preferredCampaign:'sin-config'}).flatMap(s=>s.fields).find(f=>f.key==='modality')?.options).toEqual(['Presencial','Remota']);
+  const modality=companySections('Talent Up',campaigns,{preferredCampaign:'sin-config'}).flatMap(s=>s.fields).find(f=>f.key==='modality');
+  expect(modality?.options).toEqual([{value:'Presencial',label:'Presencial'},{value:'Remota',label:'Remoto'}]);
+  expect(companySections('Talent Up',campaigns,{preferredCampaign:'con-config'}).flatMap(s=>s.fields).find(f=>f.key==='modality')?.options).toEqual(modality?.options);
   expect(visibleTechCenterFields({preferredCampaign:'sin-config',modality:'Remota'},campaigns).some(f=>f.key==='computer')).toBe(true);
   expect(visibleTechCenterFields({preferredCampaign:'sin-config',modality:'Presencial'},campaigns).some(f=>f.key==='computer')).toBe(false);
   expect(changeCaptureAnswer({},'preferredCampaign','sin-config',campaigns)).not.toHaveProperty('modality');
-  expect(changeCaptureAnswer({},'preferredCampaign','con-config',campaigns).modality).toBe('Presencial');
+  expect(changeCaptureAnswer({},'preferredCampaign','con-config',campaigns)).not.toHaveProperty('modality');
  });
  it('rechaza opciones inventadas y texto excesivo; no cambia el formulario genérico',()=>{
   for(const field of visibleTechCenterFields(techApplicant).filter(f=>f.options))

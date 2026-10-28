@@ -42,7 +42,7 @@ export function PublicCaptureView({ token }: { token: string }) {
   const sensitiveAnswered=!!questions&&visibleQuestions(questions,techAnswers).some(q=>sensitiveQuestionIds.includes(q.id as typeof sensitiveQuestionIds[number])&&Boolean(techAnswers[q.id]));
   const changeAnswer=(key:string,value:string|string[])=>{
     if(key==='preferredCampaign'){
-      setFiles({});setSensitiveConsent(false);setTechAnswers({preferredCampaign:String(value),...(selectedCaptureConfig({preferredCampaign:String(value)},campaigns)?.modality==='Preferencia'?{}:{modality:campaigns.find(c=>c.id===value)?.configuration?.modality||''})});
+      setFiles({});setSensitiveConsent(false);setTechAnswers({preferredCampaign:String(value)});
       setStepError('');
     }else setTechAnswers(previous=>({...previous,[key]:value}));
   };
@@ -140,7 +140,7 @@ export function PublicCaptureView({ token }: { token: string }) {
           {step===0&&<>
             {!campaigns.length && <p role="status" className="rounded-lg bg-orange-50 p-3 text-sm">Esta empresa no tiene campañas disponibles para postular en este momento.</p>}
             {techAnswers.preferredCampaign && !selectedConfig && <p role="status" className="rounded-lg bg-orange-50 p-3 text-sm">Esta campaña tiene pendiente la configuración del formulario. Contacta al responsable del enlace o selecciona otra campaña.</p>}
-            {selectedCampaign && selectedConfig?.modality==='Preferencia' && <p role="note" className="rounded-lg bg-sky-50 p-3 text-sm text-sky-900">Esta campaña usa el formulario predeterminado. La modalidad que indiques es una preferencia, no una condición confirmada de la vacante.</p>}
+            {selectedCampaign && selectedConfig && <p role="note" className="rounded-lg bg-sky-50 p-3 text-sm text-sky-900">Podrás elegir Presencial o Remoto según tu preferencia. Tu elección está sujeta a la disponibilidad de la campaña.</p>}
             <label className="block text-sm font-semibold">Campaña (*)<select className="mt-2 w-full rounded-xl border border-slate-300 bg-white p-3 text-sm focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-100" required value={String(techAnswers.preferredCampaign||'')} onChange={e=>changeAnswer('preferredCampaign',e.target.value)}><option value="">Selecciona la campaña a la que deseas postular</option>{campaigns.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><span className="mt-1 block text-xs font-normal text-slate-500">Las preguntas se adaptan a la campaña. Cambiarla reinicia las respuestas del formulario.</span></label>
           </>}
           {selectedConfig&&(questions?<CaptureFormFields key={selectedCampaign?.id} questions={questions} hideCampaign showQuestion={(q:FormQuestion)=>fieldStep(q.id,q.section)===step} values={techAnswers} uploadedFiles={files} onChange={changeAnswer} onFile={(id,file)=>{

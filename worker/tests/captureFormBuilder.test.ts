@@ -18,12 +18,16 @@ describe('Editor de formularios',()=>{
   expect(visibleQuestions(q,{contactCenterExperience:'No',disability:'No'}).some(q=>q.id==='disabilityDetails')).toBe(false);
   expect(sensitiveQuestionIds.every(id=>f.questions.find(q=>q.id===id)?.required===false)).toBe(true);
  });
- it('el formulario predeterminado pregunta preferencia cuando falta modalidad',()=>{
-  const questions=effectiveQuestions(defaultCaptureForm(),publicCaptureConfig(null)!,{id:'talent-up:bitel-migraciones',name:'Migraciones Bitel'},'Talent Up');
-  expect(questions.find(q=>q.id==='modality')).toMatchObject({options:[{value:'Presencial',label:'PRESENCIAL'},{value:'Remota',label:'REMOTA'}]});
-  expect(questions.find(q=>q.id==='modality')?.label).toContain('PREFERIDA');
-  expect(visibleQuestions(questions,{modality:'Remota'}).some(q=>q.id==='computer')).toBe(true);
-  expect(visibleQuestions(questions,{modality:'Presencial'}).some(q=>q.id==='computer')).toBe(false);
+ it('todas las campañas preguntan preferencia presencial o remota, sin imponer la modalidad configurada',()=>{
+  for(const config of [publicCaptureConfig(null)!,configuration,{...configuration,modality:'Remota' as const}]){
+   const questions=effectiveQuestions(defaultCaptureForm(),config,{id:'talent-up:bitel-migraciones',name:'Migraciones Bitel'},'Talent Up');
+   expect(questions.find(q=>q.id==='modality')).toMatchObject({options:[{value:'Presencial',label:'Presencial'},{value:'Remota',label:'Remoto'}]});
+   expect(questions.find(q=>q.id==='modality')?.label).toContain('PREFERIDA');
+   expect(validateFormAnswers(questions.filter(q=>q.id==='modality'),{modality:'Remota'})).toEqual({modality:'Remota'});
+   expect(validateFormAnswers(questions.filter(q=>q.id==='modality'),{modality:'Presencial'})).toEqual({modality:'Presencial'});
+   expect(visibleQuestions(questions,{modality:'Remota'}).some(q=>q.id==='computer')).toBe(true);
+   expect(visibleQuestions(questions,{modality:'Presencial'}).some(q=>q.id==='computer')).toBe(false);
+  }
  });
  it('no permite borrar identidad, duplicar IDs, ciclos, condiciones inválidas ni CONADIS obligatorio',()=>{
   const f=defaultCaptureForm();
