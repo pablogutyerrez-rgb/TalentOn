@@ -37,6 +37,7 @@ const WORKER_ERROR_MESSAGES: Record<string, string> = {
   COMPANY_LEGAL_REQUIRED: 'Configura la razón social legal y el RUC de la empresa en Administración antes de preparar datos laborales o contratos.',
   USER_HOME_COMPANY_REQUIRED: 'Edita el perfil o restablece la contraseña desde la empresa de origen del usuario. Para modificar acceso a esta empresa usa Asignaciones multiempresa.',
   INVALID_CAMPAIGN: 'Completa el nombre y una cantidad válida de vacantes.',
+  INVALID_CANDIDATE_AGE: 'Ingresa una edad válida entre 1 y 120 años.',
   TARGET_EXCEEDS_VACANCIES: 'Las vacantes no pueden ser menores que las cuotas asignadas. Ajusta primero las cuotas de los responsables.',
   INVALID_CAMPAIGN_DATES: 'Revisa las fechas: deben ser válidas y el fin no puede ser anterior al inicio.',
   INVALID_CAMPAIGN_AMOUNT: 'Las vacantes deben ser enteras y los importes deben ser números válidos; el sueldo no puede ser negativo.',

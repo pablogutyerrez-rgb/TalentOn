@@ -280,6 +280,7 @@ async function createCandidate(request: Request, env: Env, actor: Profile) {
   requireSelectionUser(actor); const input = await request.json<Record<string, unknown>>();
   const dni = typeof input.dni === 'string' ? input.dni.replace(/\D/g, '') : ''; const campaignId = typeof input.campaignId === 'string' ? input.campaignId : '';
   if (!dni || !campaignId || !String(input.fullName ?? '').trim()) throw new Error('INVALID_CANDIDATE');
+  if (input.age !== undefined && (typeof input.age !== 'number' || !Number.isInteger(input.age) || input.age < 1 || input.age > 120)) throw new Error('INVALID_CANDIDATE_AGE');
   const campaignData = await campaign(env, campaignId); const assignedUsers = Array.isArray(campaignData.assignedUserIds) ? campaignData.assignedUserIds : []; const recruiterAllowed = actor.role === 'RECLUTADOR' && campaignData.companyId === actor.companyId && assignedUsers.includes(actor.uid); if (!campaignAllowed(actor, campaignData) && !recruiterAllowed) throw new Error('FORBIDDEN');
   const id = `CAN-${dni}`;
   try { await candidate(env, id); throw new Error('DUPLICATE_CANDIDATE'); } catch (error) { if (!(error instanceof Error) || error.message !== 'FIRESTORE_404') throw error; }

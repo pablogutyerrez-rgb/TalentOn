@@ -43,6 +43,7 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [dni, setDni] = useState('');
+  const [age, setAge] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [district, setDistrict] = useState('Lima Centro');
@@ -64,6 +65,7 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
     if (isOpen && defaultCampaignId) setCampaignId(defaultCampaignId);
     if (isOpen && currentUser.role === 'RECLUTADOR') setRecruiterId(currentUser.id);
   }, [isOpen, defaultCampaignId, currentUser.id, currentUser.role]);
+  useEffect(() => { if (isOpen) setAge(''); }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -99,7 +101,7 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
-    if (!firstName.trim() || !lastName.trim() || !dni.trim() || !phone.trim()) return;
+    if (!firstName.trim() || !lastName.trim() || !dni.trim() || !phone.trim() || !Number.isInteger(Number(age)) || Number(age) < 1 || Number(age) > 120) return;
 
     // Check duplicate
     const dup = createdCandidateId ? {isDuplicate:false,reason:undefined} : checkDuplicateCandidate(dni, phone,undefined,selectedCampaign?.companyId);
@@ -124,6 +126,7 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
       lastName: lastName.trim(),
       email: email.trim(),
       phone: phone.trim(),
+      age: Number(age),
       city: `Lima - ${district}`,
       district: district,
       workModality,
@@ -188,6 +191,7 @@ export const CandidateCreateModal: React.FC<CandidateCreateModalProps> = ({
                 <div><label className={fieldLabelClass}>Nombres <span className="text-rose-600">*</span></label><input required value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Ej: Daniel Alejandro" className={inputClass} /></div>
                 <div><label className={fieldLabelClass}>Apellidos <span className="text-rose-600">*</span></label><input required value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Ej: Ramos Salazar" className={inputClass} /></div>
                 <div><label className={fieldLabelClass}>DNI / Documento de identidad <span className="text-rose-600">*</span></label><input required maxLength={10} value={dni} onChange={e => handleDniChange(e.target.value)} placeholder="Ej: 74829103" className={`${inputClass} font-mono font-semibold`} /></div>
+                <div><label htmlFor="candidate-create-age" className={fieldLabelClass}>Edad (años) <span className="text-rose-600">*</span></label><input id="candidate-create-age" type="number" required min={1} max={120} step={1} value={age} onChange={e => setAge(e.target.value)} placeholder="Ej: 25" className={inputClass} /></div>
                 <div><label className={fieldLabelClass}>Teléfono / Celular <span className="text-rose-600">*</span></label><div className="flex gap-1"><span className="flex h-11 w-20 shrink-0 items-center justify-between rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-[#143A56]">+51 <span className="text-slate-500">⌄</span></span><input type="tel" required value={phone} onChange={e => handlePhoneChange(e.target.value)} placeholder="Ej: 984 712 390" className={inputClass} /></div></div>
                 <div><label className={fieldLabelClass}>Correo electrónico</label><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Ej: daniel.ramos@gmail.com" className={inputClass} /></div>
                 <div><label className={fieldLabelClass}>Distrito de residencia</label><select value={district} onChange={e => setDistrict(e.target.value)} className={inputClass}><option value="Lima Centro">Lima Centro</option><option value="Miraflores">Miraflores</option><option value="San Martín de Porres">San Martín de Porres</option><option value="Los Olivos">Los Olivos</option><option value="Independencia">Independencia</option><option value="Comas">Comas</option><option value="Surco">Santiago de Surco</option><option value="San Borja">San Borja</option><option value="San Juan de Lurigancho">San Juan de Lurigancho</option><option value="Ate">Ate</option><option value="Callao">Callao</option></select></div>

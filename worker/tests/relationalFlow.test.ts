@@ -81,9 +81,13 @@ describe('Transición relacional PostgreSQL 17',()=>{
   const edited=(await call('/api/bootstrap')).data.campaigns[0];expect(edited.salaryBase).toBe(0);expect(edited.title).toBe('CI editado');expect(edited.responsibles).toHaveLength(1);
  });
  it('crea candidato, datos personales y resultados de selección',async()=>{
-  const r=await call('/api/candidates','POST',{dni:'99900001',fullName:'CI Persona',campaignId,recruiterId:admin,campaignName:'CI editado',phone:'999000001',source:'Otro',workModality:'Remoto',workSchedule:'Semifull',applicationDate:new Date().toISOString().slice(0,10)});
+  const r=await call('/api/candidates','POST',{dni:'99900001',fullName:'CI Persona',age:28,campaignId,recruiterId:admin,campaignName:'CI editado',phone:'999000001',source:'Otro',workModality:'Remoto',workSchedule:'Semifull',applicationDate:new Date().toISOString().slice(0,10)});
   expect(r.status).toBe(201);personId=r.data.id;
-  expect((await call('/api/bootstrap')).data.candidates[0]).toMatchObject({workModality:'Remoto',workSchedule:'Semifull'});
+  expect((await call('/api/bootstrap')).data.candidates[0]).toMatchObject({age:28,workModality:'Remoto',workSchedule:'Semifull'});
+  for(const age of [0,121,25.5,'25']){
+   const invalid=await call('/api/candidates','POST',{dni:'99900999',fullName:'Edad inválida',age,campaignId,recruiterId:admin});
+   expect(invalid.status).toBe(400);expect(invalid.data.message).toBe('INVALID_CANDIDATE_AGE');
+  }
   expect((await call('/api/candidates/'+personId+'/personal-data','PATCH',{fullName:'CI Persona editada',phone:'999000002',workModality:'Presencial',workSchedule:'Fulltime'})).status).toBe(200);
   expect((await call('/api/candidates/'+personId+'/personal-data','PATCH',{workSchedule:'INVALIDO'})).status).toBe(400);
   expect((await call('/api/bootstrap')).data.candidates[0]).toMatchObject({workModality:'Presencial',workSchedule:'Fulltime'});
